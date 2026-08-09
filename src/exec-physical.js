@@ -81,7 +81,11 @@ function physicalWorkspaceGuard(policy, call, virtualWorkspaceRoot = "/workspace
 
   for (const lexical of workspaceTargets) {
     let resolved = resolveMappedPath(configuredMappings, call, lexical);
-    if (!resolved.ok && typeof call.workspaceDir === "string" && call.workspaceDir && path.isAbsolute(call.workspaceDir)) {
+    // The runtime workspaceDir fallback is only valid when no configured mapping
+    // covers the virtual path. A configured mapping that fails physical checks
+    // (symlink escape, alias, missing root, etc.) must remain a failure; otherwise
+    // the broader workspace fallback could silently bypass the explicit mapping.
+    if (resolved.code === "unmapped" && typeof call.workspaceDir === "string" && call.workspaceDir && path.isAbsolute(call.workspaceDir)) {
       resolved = resolveMappedPath([
         { id: "<workspaceDir>", virtual: virtualRoot, host: call.workspaceDir },
       ], call, lexical);
