@@ -1,7 +1,67 @@
+import { matchAny, validateMatcher } from "./matchers.js";
 import { getValuesAtPath, normalizeToolPath } from "./paths.js";
 import { resolveMappedPath } from "./path-mappings.js";
 
 const URI_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
+const FS_OPERATIONS = new Set(["read", "write", "delete", "move", "execute"]);
+const LOCAL_INPUT_KEYS = new Set([
+  "id", "description", "tools", "selector", "operation", "remotePrefixes",
+  "mappingIds", "agents", "sessions", "unmappedHint"
+]);
+
+function asArray(value) { return Array.isArray(value) ? value : [value]; }
+function assertObject(value, where) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${where}: must be object`);
+}
+function validateMatcherList(value, where) {
+  if (value === undefined) return;
+  const list = asArray(value);
+  if (list.length === 0) throw new Error(`${where}: empty matcher list`);
+  list.forEach((matcher, i) => validateMatcher(matcher, `${where}[${i}]`));
+}
+function validateStringList(value, where) {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !item)) {
+    throw new Error(`${where}: non-empty string[] required`);
+  }
+  if (new Set(value).size !== value.length) throw new Error(`${where}: duplicate entries are not allowed`);
+}
+
+export function validateLocalInputs(inputs) {
+  if (inputs === undefined) return;
+  if (!Array.isArray(inputs)) throw new Error("localInputs must be array");
+  const ids = new Set();
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i];
+    const where = `localInputs[${i}]`;
+    assertObject(input, where);
+    for (const key of Object.keys(input)) {
+      if (!LOCAL_INPUT_KEYS.has(key)) throw new Error(`${where}.${key}: unknown field`);
+    }
+    if (typeof input.id !== "string" || !input.id) throw new Error(`${where}.id: required`);
+    if (ids.has(input.id)) throw new Error(`${where}.id: duplicate '${input.id}'`);
+    ids.add(input.id);
+    if (input.description !== undefined && typeof input.description !== "string") throw new Error(`${where}.description: string required`);
+    validateMatcherList(input.tools, `${where}.tools`);
+    if (input.tools === undefined) throw new Error(`${where}.tools: required`);
+    validateMatcherList(input.agents, `${where}.agents`);
+    validateMatcherList(input.sessions, `${where}.sessions`);
+    if (typeof input.selector !== "string" || !input.selector) throw new Error(`${where}.selector: required`);
+    if (!FS_OPERATIONS.has(input.operation)) throw new Error(`${where}.operation: unsupported filesystem operation`);
+    validateStringList(input.remotePrefixes, `${where}.remotePrefixes`);
+    validateStringList(input.mappingIds, `${where}.mappingIds`);
+    if (input.unmappedHint !== undefined && (typeof input.unmappedHint !== "string" || !input.unmappedHint)) {
+      throw new Error(`${where}.unmappedHint: non-empty string required`);
+    }
+  }
+}
+
+function contextMatches(input, call) {
+  if (!(typeof call.toolName === "string" && matchAny(input.tools, call.toolName))) return false;
+  if (input.agents !== undefined && !(typeof call.agentId === "string" && matchAny(input.agents, call.agentId))) return false;
+  if (input.sessions !== undefined && !(typeof call.sessionKey === "string" && matchAny(input.sessions, call.sessionKey))) return false;
+  return true;
+}
 
 function scalarStrings(value) {
   if (typeof value === "string") return [value];
@@ -85,8 +145,8 @@ function rewriteValuesAtSelector(root, selector, rewrite) {
 }
 
 export function prepareLocalInputs(policy, call, virtualWorkspaceRoot = "/workspace") {
-  const inputs = policy.toolProfiles?.[call.toolName]?.localInputs;
-  if (!Array.isArray(inputs) || inputs.length === 0) return null;
+  const inputs = (policy.localInputs ?? []).filter((input) => contextMatches(input, call));
+  if (inputs.length === 0) return null;
 
   const rewrites = [];
   for (const input of inputs) {
