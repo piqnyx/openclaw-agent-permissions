@@ -7,6 +7,7 @@ const PATH_MAPPING_KEYS = new Set([
 ]);
 const AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 const TEMPLATE_PATTERN = /\{([^{}]+)\}/gu;
+const ANY_TEMPLATE_PATTERN = /\{[^{}]+\}/u;
 
 function asArray(value) { return Array.isArray(value) ? value : [value]; }
 function assertObject(value, where) {
@@ -81,11 +82,9 @@ function renderHost(mapping, call) {
     }
     host = host.replaceAll("{agentId}", call.agentId);
   }
-  if (TEMPLATE_PATTERN.test(host)) {
-    TEMPLATE_PATTERN.lastIndex = 0;
+  if (ANY_TEMPLATE_PATTERN.test(host)) {
     return { ok: false, reason: `mapping ${mapping.id} contains an unresolved host template variable` };
   }
-  TEMPLATE_PATTERN.lastIndex = 0;
   if (!path.isAbsolute(host)) return { ok: false, reason: `mapping ${mapping.id} resolved to a non-absolute host path` };
   return { ok: true, host: path.normalize(host) };
 }
