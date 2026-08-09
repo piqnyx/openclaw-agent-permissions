@@ -38,6 +38,7 @@ npm run policy:check -- /home/openclaw/.openclaw/permissions.json
 - Test absolute and relative paths separately.
 - Treat OpenClaw filesystem-safety failures and plugin policy denials as different layers; record which one blocked the operation.
 - Clean only files created by the test. Avoid restoring an entire live workspace from an old backup if other plugins may have changed legitimate state.
+- Keep real-agent cross-agent tests minimal when long-term memory automatically captures conversations.
 
 ## Filesystem baseline
 
@@ -166,15 +167,15 @@ Expected:
 
 The filename regex is a namespace guard, not a full Gregorian calendar validator.
 
-## Symlink and hardlink cases
+## Direct filesystem symlink and hardlink cases
 
-These are primarily OpenClaw filesystem-layer tests, not plugin canonicalization tests.
+These remain primarily OpenClaw filesystem-layer tests.
 
-Verify the stock OpenClaw filesystem layer rejects unsafe symlink escapes and hardlink aliases before protected content can be modified.
+Verify the stock OpenClaw filesystem layer rejects unsafe symlink escapes and hardlink aliases before protected content can be modified through direct filesystem tools.
 
-Record the blocking layer. A stock OpenClaw error such as a sandbox-root/symlink/hardlink rejection is a system-level PASS even though it is not an `agent-permissions` denial.
+Record the blocking layer. A stock OpenClaw sandbox-root/symlink/hardlink rejection is a system-level PASS even when it is not an `agent-permissions` denial.
 
-## Cross-agent test
+## Cross-agent source test
 
 For an agent other than `main`, request a read of:
 
@@ -184,7 +185,7 @@ For an agent other than `main`, request a read of:
 
 Expected: `agent-permissions` DENY before filesystem lookup, even if that agent has no source bind.
 
-Keep real-agent tests minimal if a long-term memory plugin automatically captures conversations. Cover the full non-main read/write/edit/delete/move matrix in automated tests instead of polluting a user's production memory.
+Prefer automated regression coverage for the full non-main matrix instead of polluting a real user's production memory.
 
 ## Generic tools
 
@@ -203,13 +204,13 @@ After a memory-read `Allow always`, verify:
 - another agent -> ASK;
 - static DENY still wins if configured.
 
-## Exec tests
+## Exec command-policy baseline
 
 Run exec tests only after filesystem behavior is stable.
 
 Baseline with `exec.default = ask`:
 
-- ordinary command -> ASK;
+- ordinary unknown command -> ASK;
 - approval UI offers Allow once / Deny, not Allow always;
 - an explicit deny regex blocks before approval;
 - an explicit ask regex asks even if a later allow regex would match;
@@ -217,7 +218,98 @@ Baseline with `exec.default = ask`:
 - multiline or appended shell text must not accidentally match a narrow full allow;
 - missing/unresolved command parameter -> DENY fail-closed.
 
-Remember: approved shell commands are not restricted by filesystem zones.
+## Exec path-policy matrix (2.0.5)
+
+When `exec.paths` is configured, command authorization and path authorization are independent. The strictest result wins.
+
+Minimum focused runtime matrix:
+
+| Command | Expected reason |
+|---|---|
+| `cat /workspace/openclaw-src/package.json` for an allowed main mapping | ALLOW silently |
+| `cat /workspace/memory/.dreams/test.md` when memory internals are not path-allowed | ASK/DENY according to exec-path policy |
+| `id` when `id` is in `pathless.allow` and command policy allows it | ALLOW silently |
+| `rg needle` when `rg` is not trusted pathless and no explicit target is present | ASK |
+| `cat /workspace/draft/../memory/.dreams/test.md` | normalize first, then ASK/DENY |
+| `rm /workspace/draft/example` when path is allowed but command is not silently allowed | ASK |
+
+Do not press Allow during negative tests unless execution itself is part of the test. Deny the approval and verify no side effect occurred.
+
+### Relative exec paths
+
+If command policy otherwise allows the command, verify explicit relative targets such as:
+
+```text
+draft/file.txt
+./draft/file.txt
+```
+
+are normalized below `virtualWorkspaceRoot` before `exec.paths` matching.
+
+Traversal must normalize before matching:
+
+```text
+draft/../memory/.dreams/test.md
+```
+
+must not inherit trust from the `draft` prefix.
+
+### No-target / implicit-current-directory behavior
+
+A silently allowed command with no detected explicit path target is permitted by the path layer only when every simple command word in the shell chain is listed in:
+
+```json
+"pathless": {
+  "allow": ["id", "pwd", "uname"]
+}
+```
+
+Use one trusted pathless command such as `id` as a positive test.
+
+Use a filesystem-search command such as `rg needle` with no explicit target as a negative test. It should ASK rather than silently searching the current workspace.
+
+### Ambiguous shell syntax
+
+Path analysis is intentionally conservative. Dynamic shell constructs, unresolved expansions, glob-like path expansions, malformed quoting, background operators, and similar ambiguity should not silently pass an `exec.paths` guard.
+
+Keep automated tests for syntax variants; runtime testing need only sample representative cases.
+
+### Physical workspace verification
+
+For otherwise-silent `/workspace/**` exec targets, 2.0.5 performs host-side physical verification when a host mapping is available.
+
+For the ordinary agent workspace, the runtime `workspaceDir` mapping is used.
+
+For an external bind such as:
+
+```text
+/home/openclaw/openclaw -> /workspace/openclaw-src
+```
+
+declare:
+
+```json
+"physicalMappings": [
+  {
+    "id": "openclaw-source-bind",
+    "virtual": "/workspace/openclaw-src",
+    "host": "/home/openclaw/openclaw",
+    "agents": ["main"]
+  }
+]
+```
+
+Then verify a normal file below that bind can be read silently when both command and lexical path policy allow it.
+
+Automated tests should also verify a symlink below an allowed mapping that resolves outside its physical host root becomes ASK rather than a silent ALLOW.
+
+Non-workspace container paths such as `/etc` are not host-realpathed because the host and sandbox namespaces are different; they remain governed by lexical `exec.paths` plus command policy.
+
+### Exec-path limitations
+
+The exec path analyzer is deliberately not a full shell parser. Ambiguous input asks instead of attempting broad interpretation.
+
+Physical verification detects path/symlink mismatches for mapped workspace paths, but it does not turn shell execution into a complete hostile-code sandbox. Hardlink aliasing and behavior after an operator-approved arbitrary shell command still require Docker/OpenClaw isolation and physical mount design.
 
 ## Fail-closed tests
 
