@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.5
+
+- add an independent `exec.paths` policy layer so silently allowed shell commands can be restricted by sandbox-visible filesystem targets without coupling shell authorization to `filesystem.zones`
+- combine exec command and path decisions fail-closed with `DENY > ASK > ALLOW`; path permission never upgrades an unsafe or unknown command
+- normalize explicit absolute and relative exec path operands before matching, including lexical `.` / `..` traversal
+- treat dynamic/ambiguous shell path analysis and path expansions conservatively as ASK
+- add configurable `exec.paths.pathless.allow` command-word trust for commands that can safely run without an explicit filesystem target; unproven no-target commands ASK
+- add host-side physical verification for silently allowed `/workspace/**` exec targets to catch symlink aliases before shell execution
+- add configurable `exec.paths.physicalMappings` for external sandbox binds such as `/workspace/openclaw-src` -> `/home/openclaw/openclaw`, with optional agent scoping and longest-prefix selection
+- keep non-workspace container paths lexical because host `/etc`, `/usr`, `/tmp`, and similar paths are not the sandbox namespace
+- fix `policy:check` so it validates the final 2.0.5 schema, including `pathless` and physical mappings
+- expand automated regression coverage from the 2.0.4 baseline and verify the new exec guard in live OpenClaw runtime tests
+
 ## 2.0.4
 
 - runtime authorization logic remains unchanged from 2.0.3
