@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { validatePolicy } from "../src/exec-paths.js";
+import { validatePolicy } from "../src/exec-no-target.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requested = process.argv[2] ?? path.join(root, "permissions.example.json");
