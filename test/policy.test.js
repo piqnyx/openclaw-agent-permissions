@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LearnedRuleStore, evaluatePolicy, validatePolicy } from "../src/policy.js";
+import { LearnedRuleStore, evaluatePolicy } from "../src/policy.js";
+import { validatePolicy } from "../src/exec-no-target.js";
 import { buildCallContext } from "../src/profiles.js";
 import { extractPatchPaths, extractPatchTargets, normalizeToolPath } from "../src/paths.js";
 

@@ -1,4 +1,4 @@
-import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./policy.js";
+import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./exec-no-target.js";
 import { buildCallContext, rewriteAllowedFilesystemMutationParams } from "./profiles.js";
 
 function clamp(value, max) {
@@ -48,7 +48,7 @@ function register(api) {
     try {
       const policy = loadAll();
       const call = buildCallContext(event, hookContext, policy, virtualWorkspaceRoot);
-      const decision = evaluatePolicy(policy, call, learnedStore);
+      const decision = evaluatePolicy(policy, call, learnedStore, virtualWorkspaceRoot);
       if (logDecisions) api.logger.info(`agent-permissions: ${decision.effect.toUpperCase()} agent=${call.agentId ?? "?"} ${preview(call)} rule=${decision.ruleId ?? "<default>"}`);
       if (decision.effect === "deny") return { block: true, blockReason: `agent-permissions denied ${call.toolName}: ${decision.reason}` };
 

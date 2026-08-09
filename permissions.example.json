@@ -127,9 +127,123 @@
   "exec": {
     "default": "ask",
     "allowAlways": false,
+    "paths": {
+      "default": "ask",
+      "pathless": {
+        "allow": [
+          "pwd",
+          "id",
+          "whoami",
+          "groups",
+          "uname",
+          "uptime",
+          "free",
+          "basename",
+          "dirname"
+        ]
+      },
+      "physicalMappings": [
+        {
+          "id": "openclaw-source-bind",
+          "description": "Example physical mapping for the optional main-only read-only OpenClaw source bind; adjust the host path for your installation",
+          "virtual": "/workspace/openclaw-src",
+          "host": "/home/openclaw/openclaw",
+          "agents": [
+            "main"
+          ]
+        }
+      ],
+      "deny": [
+        {
+          "id": "workspace-openclaw-source-deny-others",
+          "description": "Agents other than main may not silently inspect the main-only OpenClaw source bind through exec",
+          "path": {
+            "regex": "^/workspace/openclaw-src(?:/.*)?$"
+          },
+          "agents": [
+            {
+              "regex": "^(?!main$).+"
+            }
+          ]
+        }
+      ],
+      "ask": [],
+      "allow": [
+        {
+          "id": "container-system-inspection",
+          "description": "Allow otherwise-approved read-only shell inspection of common container system trees",
+          "path": {
+            "regex": "^/(?:bin|sbin|usr|lib|lib64|etc|var|proc|sys|dev|run|tmp|opt)(?:/.*)?$"
+          }
+        },
+        {
+          "id": "workspace-core-and-profile-files",
+          "description": "Allow otherwise-approved shell inspection of selected workspace instruction/profile files",
+          "path": {
+            "regex": "^/workspace/(?:AGENTS|DREAMS|USER|IDENTITY|SOUL|MEMORY)\\.md$"
+          }
+        },
+        {
+          "id": "workspace-diary-files",
+          "description": "Allow otherwise-approved shell inspection of canonical daily memory files",
+          "path": {
+            "regex": "^/workspace/memory/(?:memory-)?\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])\\.md$"
+          }
+        },
+        {
+          "id": "workspace-draft",
+          "description": "Allow otherwise-approved shell access inside the draft work area",
+          "path": {
+            "regex": "^/workspace/draft(?:/.*)?$"
+          }
+        },
+        {
+          "id": "workspace-openclaw-source-main",
+          "description": "Main may silently inspect the mounted OpenClaw source tree when command policy also allows the command",
+          "path": {
+            "regex": "^/workspace/openclaw-src(?:/.*)?$"
+          },
+          "agents": [
+            "main"
+          ]
+        }
+      ]
+    },
     "deny": [],
-    "ask": [],
-    "allow": []
+    "ask": [
+      {
+        "id": "rg-preprocessor",
+        "description": "ripgrep --pre executes an external preprocessor command",
+        "regex": "\\brg\\b[^\\r\\n]*[ \\t]--pre(?:=|[ \\t]|$)",
+        "match": "search"
+      },
+      {
+        "id": "find-side-effects",
+        "description": "find delete/exec/file-output actions require approval",
+        "regex": "\\bfind\\b[^\\r\\n]*[ \\t]-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)(?:[ \\t]|$)",
+        "match": "search"
+      },
+      {
+        "id": "diff-external-pager",
+        "description": "diff --paginate/-l executes the external pr program",
+        "regex": "\\bdiff\\b[^\\r\\n]*(?:[ \\t]--paginate(?:[ \\t]|$)|[ \\t]-[^ \\t\\r\\n]*l[^ \\t\\r\\n]*(?:[ \\t]|$))",
+        "match": "search"
+      },
+      {
+        "id": "df-sync",
+        "description": "df --sync invokes filesystem synchronization",
+        "regex": "\\bdf\\b[^\\r\\n]*[ \\t]--sync(?:[ \\t]|$)",
+        "match": "search"
+      }
+    ],
+    "allow": [
+      {
+        "id": "readonly-shell-chain",
+        "description": "Conservative read-only inspection commands and simple chains; exec.paths independently restricts filesystem targets",
+        "regex": "^\\s*(?:pwd|ls|cat|tac|head|tail|wc|stat|du|df|readlink|realpath|basename|dirname|which|whereis|uname|id|whoami|groups|uptime|free|findmnt|lsblk|ps|pgrep|pidof|lsof|grep|rg|jq|cut|tr|diff|cmp|md5sum|sha1sum|sha224sum|sha256sum|sha384sum|sha512sum|find)(?:[ \\t]+(?:[^\\s;&|><$`\\\\()'\"]+|'[^'\\r\\n]*'|\"[^\"$`\\\\\\r\\n]*\"))*(?:\\s*(?:&&|\\|\\||;|\\|)\\s*(?:pwd|ls|cat|tac|head|tail|wc|stat|du|df|readlink|realpath|basename|dirname|which|whereis|uname|id|whoami|groups|uptime|free|findmnt|lsblk|ps|pgrep|pidof|lsof|grep|rg|jq|cut|tr|diff|cmp|md5sum|sha1sum|sha224sum|sha256sum|sha384sum|sha512sum|find)(?:[ \\t]+(?:[^\\s;&|><$`\\\\()'\"]+|'[^'\\r\\n]*'|\"[^\"$`\\\\\\r\\n]*\"))*)*\\s*$",
+        "match": "full"
+      }
+    ]
   },
   "tools": {
     "default": "ask",

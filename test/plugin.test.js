@@ -20,7 +20,7 @@ function setup(mutator = null, config = {}) {
     on(name, fn) { if (name === "before_tool_call") hook = fn; }
   };
   plugin.register(api);
-  return { hook, policyPath, learnedPath: policy.learning.path, logs };
+  return { hook, policyPath, learnedPath: policy.learning.path, workspaceDir: dir, logs };
 }
 
 test("memory ASK exposes allow-always and persists agent-scoped trust", async () => {
@@ -76,7 +76,7 @@ test("recognized exec tool fails closed when command cannot be extracted", async
 
 test("exec does not offer allow-always by default", async () => {
   const { hook } = setup();
-  const asked = await hook({ toolName: "exec", params: { command: "id" } }, { agentId: "main" });
+  const asked = await hook({ toolName: "exec", params: { command: "python -V" } }, { agentId: "main" });
   assert.deepEqual(asked.requireApproval.allowedDecisions, ["allow-once", "deny"]);
 });
 
@@ -266,7 +266,7 @@ test("DENY is evaluated before compatibility rewrite and traversal cannot escape
 });
 
 test("read and exec paths are never compatibility-rewritten", async () => {
-  const { hook } = setup((policy) => {
+  const { hook, workspaceDir } = setup((policy) => {
     policy.filesystem.zones.unshift({
       id: "draft-rw",
       path: { regex: "^/workspace/draft(?:/.*)?$" },
@@ -282,7 +282,7 @@ test("read and exec paths are never compatibility-rewritten", async () => {
     undefined
   );
   assert.equal(
-    await hook({ toolName: "exec", params: { command: "cat /workspace/draft/a.txt" } }, { agentId: "main" }),
+    await hook({ toolName: "exec", params: { command: "cat /workspace/draft/a.txt" } }, { agentId: "main", workspaceDir }),
     undefined
   );
 });
