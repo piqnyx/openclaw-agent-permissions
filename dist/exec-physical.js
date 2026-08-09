@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { matchAny, validateMatcher } from "./matchers.js";
+import { validateMatcher } from "./matchers.js";
+import { resolveMappedPath } from "./path-mappings.js";
 import {
   LearnedRuleStore,
   PolicyLoader,
@@ -66,43 +67,6 @@ export function validatePolicy(policy) {
   return policy;
 }
 
-function isInside(root, target) {
-  const relative = path.relative(root, target);
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
-}
-
-function deepestExistingAncestor(target) {
-  let current = target;
-  const suffix = [];
-  while (true) {
-    try {
-      fs.lstatSync(current);
-      return { ancestor: current, suffix };
-    } catch (err) {
-      if (err?.code !== "ENOENT" && err?.code !== "ENOTDIR") throw err;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    suffix.unshift(path.basename(current));
-    current = parent;
-  }
-}
-
-function mappingApplies(mapping, call, lexical) {
-  if (mapping.agents !== undefined && !(typeof call.agentId === "string" && matchAny(mapping.agents, call.agentId))) return false;
-  return lexical === mapping.virtual || lexical.startsWith(`${mapping.virtual}/`);
-}
-
-function selectPhysicalMapping(policy, call, lexical, virtualRoot) {
-  const explicit = (policy.exec?.paths?.physicalMappings ?? [])
-    .filter((mapping) => mappingApplies(mapping, call, lexical))
-    .sort((a, b) => b.virtual.length - a.virtual.length)[0];
-  if (explicit) return { id: explicit.id, virtual: explicit.virtual, host: explicit.host };
-
-  if (typeof call.workspaceDir !== "string" || !call.workspaceDir || !path.isAbsolute(call.workspaceDir)) return null;
-  return { id: "<workspaceDir>", virtual: virtualRoot, host: call.workspaceDir };
-}
-
 function physicalWorkspaceGuard(policy, call, virtualWorkspaceRoot = "/workspace") {
   const lexicalPaths = Array.isArray(call.paths) ? call.paths : [];
   const virtualRoot = path.posix.normalize(String(virtualWorkspaceRoot).replaceAll("\\", "/"));
@@ -110,44 +74,24 @@ function physicalWorkspaceGuard(policy, call, virtualWorkspaceRoot = "/workspace
   const workspaceTargets = lexicalPaths.filter((target) => target === virtualRoot || target.startsWith(virtualPrefix));
   if (workspaceTargets.length === 0) return { effect: "allow", reason: "no workspace paths require physical verification" };
 
+  const configuredMappings = [
+    ...(policy.pathMappings ?? []),
+    ...(policy.exec?.paths?.physicalMappings ?? []),
+  ];
+
   for (const lexical of workspaceTargets) {
-    const mapping = selectPhysicalMapping(policy, call, lexical, virtualRoot);
-    if (!mapping) {
-      return { effect: "ask", reason: `host mapping is unavailable for physical exec-path verification of ${lexical}` };
+    let resolved = resolveMappedPath(configuredMappings, call, lexical);
+    // The runtime workspaceDir fallback is only valid when no configured mapping
+    // covers the virtual path. A configured mapping that fails physical checks
+    // (symlink escape, alias, missing root, etc.) must remain a failure; otherwise
+    // the broader workspace fallback could silently bypass the explicit mapping.
+    if (resolved.code === "unmapped" && typeof call.workspaceDir === "string" && call.workspaceDir && path.isAbsolute(call.workspaceDir)) {
+      resolved = resolveMappedPath([
+        { id: "<workspaceDir>", virtual: virtualRoot, host: call.workspaceDir },
+      ], call, lexical);
     }
-
-    let hostRoot;
-    try {
-      hostRoot = fs.realpathSync.native(mapping.host);
-    } catch (err) {
-      return { effect: "ask", reason: `physical mapping ${mapping.id} host root cannot be resolved: ${String(err)}` };
-    }
-
-    const relativePosix = lexical === mapping.virtual ? "" : path.posix.relative(mapping.virtual, lexical);
-    const hostCandidate = path.resolve(mapping.host, ...relativePosix.split("/").filter(Boolean));
-    let ancestorInfo;
-    let realAncestor;
-    try {
-      ancestorInfo = deepestExistingAncestor(hostCandidate);
-      if (!ancestorInfo) return { effect: "ask", reason: `cannot resolve an existing ancestor for ${lexical}` };
-      realAncestor = fs.realpathSync.native(ancestorInfo.ancestor);
-    } catch (err) {
-      return { effect: "ask", reason: `physical exec-path verification failed for ${lexical}: ${String(err)}` };
-    }
-
-    if (!isInside(hostRoot, realAncestor)) {
-      return { effect: "ask", reason: `${lexical} resolves through a symlink outside physical mapping ${mapping.id}` };
-    }
-
-    const realCandidate = path.resolve(realAncestor, ...ancestorInfo.suffix);
-    if (!isInside(hostRoot, realCandidate)) {
-      return { effect: "ask", reason: `${lexical} resolves outside physical mapping ${mapping.id}` };
-    }
-
-    const physicalRelative = path.relative(hostRoot, realCandidate).split(path.sep).join("/");
-    const physicalVirtual = physicalRelative ? path.posix.join(mapping.virtual, physicalRelative) : mapping.virtual;
-    if (physicalVirtual !== lexical) {
-      return { effect: "ask", reason: `${lexical} physically resolves to ${physicalVirtual} via mapping ${mapping.id}` };
+    if (!resolved.ok) {
+      return { effect: "ask", reason: `physical exec-path verification failed for ${lexical}: ${resolved.reason}` };
     }
   }
 
