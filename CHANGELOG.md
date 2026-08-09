@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.6
+
+- add reusable top-level `pathMappings` that map sandbox-visible paths to physically verified gateway-host paths, including `{agentId}` host templates for multi-agent workspaces
+- add generic top-level `localInputs` rules that declare which tool parameter contains a local path, which filesystem operation it requires, which remote prefixes bypass local mapping, and optional remediation text
+- authorize local tool inputs through the existing filesystem zones before rewriting any tool parameter, preventing learned generic-tool approvals from bypassing protected filesystem paths
+- rewrite only declared local-input parameters after authorization so gateway-side tools can consume files that agents know as `/workspace/...`
+- reject unmapped sandbox-only paths fail-closed and support operator guidance such as copying `/tmp` artifacts into `/workspace/draft` before retrying
+- reject undeclared URI schemes instead of accidentally treating them as local paths
+- reuse top-level `pathMappings` for exec physical verification, so one dynamic `/workspace -> .../{agentId}` mapping covers every agent while longer mappings still win for nested external binds
+- preserve legacy `exec.paths.physicalMappings` for backward compatibility
+- add regression coverage for per-agent mapping, remote resource sources, protected filesystem zones, unmapped `/tmp`, unsupported URI schemes, parameter rewriting, and exec physical verification
+
 ## 2.0.5
 
 - add an independent `exec.paths` policy layer so silently allowed shell commands can be restricted by sandbox-visible filesystem targets without coupling shell authorization to `filesystem.zones`
