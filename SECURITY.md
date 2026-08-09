@@ -4,7 +4,7 @@
 
 `agent-permissions` is intended to reduce accidental or cooperative-agent misuse and to make operator authorization explicit and auditable.
 
-It is **not** intended to contain arbitrary malicious code after the operator has granted shell/process authority.
+It is **not** intended to contain arbitrary malicious code after the operator has granted unrestricted shell/process authority.
 
 The security model assumes multiple independent layers:
 
@@ -15,17 +15,50 @@ The security model assumes multiple independent layers:
 
 ## Important boundaries
 
-### Filesystem zones are not shell sandbox rules
+### Filesystem zones and exec paths are independent
 
-An approved `exec`/`bash` command is a separate authority. Filesystem zones do not rewrite or confine arbitrary shell syntax.
+`filesystem.zones` authorize recognized direct filesystem tools. They do not automatically constrain shell commands.
 
-Keep `exec.default` conservative and use Docker/container controls for resources that must remain physically protected.
+Version 2.0.5 adds an independent `exec.paths` guard for shell commands that would otherwise be silently allowed by exec command policy. This separation is intentional: an installation may permit direct filesystem tools in one namespace while allowing silent shell inspection in a different namespace.
+
+For exec, command policy and path policy are combined fail-closed. A path ALLOW never upgrades an unsafe command; the strictest result wins.
+
+An operator-approved arbitrary shell command is still a separate authority. Docker/container controls remain necessary for resources that must be physically protected.
+
+### Exec path analysis
+
+`exec.paths` performs conservative lexical analysis, not a complete shell parse.
+
+It normalizes detected explicit path operands before policy matching. Relative paths resolve below the configured virtual workspace root when they can be resolved safely. Dynamic or ambiguous analysis becomes ASK rather than silent ALLOW.
+
+Commands with no detected explicit filesystem target require explicit command-word trust in `exec.paths.pathless.allow` before the path layer permits a silent ALLOW. This prevents commands that implicitly use the current working directory from silently roaming the workspace merely because their command regex is read-only.
+
+### Physical verification of mapped workspace paths
+
+For otherwise-silent `/workspace/**` exec targets, 2.0.5 performs best-effort host-side physical verification when a host mapping is available.
+
+The ordinary agent workspace uses the runtime host `workspaceDir`. External binds below the virtual workspace should be declared with `exec.paths.physicalMappings`, for example:
+
+```json
+{
+  "id": "openclaw-source-bind",
+  "virtual": "/workspace/openclaw-src",
+  "host": "/home/openclaw/openclaw",
+  "agents": ["main"]
+}
+```
+
+The most specific matching virtual prefix is used. Symlink resolution that escapes the selected physical host root or changes the expected virtual target becomes ASK before silent shell execution.
+
+Host-side physical verification is intentionally not applied to ordinary container paths such as `/etc`, `/usr`, `/proc`, or `/tmp`, because host paths with those names are not the sandbox namespace.
 
 ### Symlinks and hardlinks
 
-The plugin performs lexical sandbox-path normalization and policy matching. It does not reimplement filesystem canonicalization.
+For direct filesystem tools, OpenClaw's filesystem safety layer and the operating system/container boundary remain responsible for symlink and hardlink enforcement.
 
-OpenClaw's filesystem safety layer and the operating system/container boundary are responsible for symlink and hardlink enforcement.
+For silently allowed mapped `/workspace/**` exec targets, the plugin additionally verifies physical path/symlink consistency as described above.
+
+This does **not** provide complete hardlink-alias detection or turn shell execution into a hostile-code sandbox. Use physical read-only mounts and container isolation where aliasing or arbitrary approved shell execution must not cross a security boundary.
 
 ### Tool profiles
 
@@ -45,8 +78,12 @@ Exec permanent approvals are intentionally unsupported; durable shell trust belo
 - use read-only Docker binds for immutable external trees;
 - avoid duplicate plugin installations;
 - keep `exec.default=ask` unless you have a narrowly reviewed rule set;
+- if using `exec.paths`, keep its default conservative and explicitly trust only intended path namespaces;
+- keep `pathless.allow` limited to commands that are genuinely safe without explicit filesystem targets;
+- declare `physicalMappings` for silently allowed external binds below `/workspace`;
 - place narrow filesystem zones before broad fallbacks;
 - validate policy before gateway restart;
+- restart the gateway after plugin-code upgrades;
 - keep backups before destructive acceptance tests.
 
 ## Reporting a vulnerability
