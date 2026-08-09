@@ -6,7 +6,7 @@ import path from "node:path";
 import { evaluatePolicy, validatePolicy } from "../src/exec-physical.js";
 import { buildCallContext } from "../src/profiles.js";
 
-function policyWithPaths() {
+function policyWithPaths(physicalMappings = []) {
   return validatePolicy({
     version: 3,
     defaults: { effect: "ask" },
@@ -16,11 +16,13 @@ function policyWithPaths() {
       allowAlways: false,
       paths: {
         default: "ask",
+        physicalMappings,
         deny: [],
         ask: [],
         allow: [
           { id: "system", path: { regex: "^/(?:etc|usr|tmp)(?:/.*)?$" } },
-          { id: "draft", path: { regex: "^/workspace/draft(?:/.*)?$" } }
+          { id: "draft", path: { regex: "^/workspace/draft(?:/.*)?$" } },
+          { id: "source", path: { regex: "^/workspace/openclaw-src(?:/.*)?$" }, agents: ["main"] }
         ]
       },
       deny: [],
@@ -34,8 +36,8 @@ function policyWithPaths() {
   });
 }
 
-function decide(command, workspaceDir) {
-  const policy = policyWithPaths();
+function decide(command, workspaceDir, physicalMappings = []) {
+  const policy = policyWithPaths(physicalMappings);
   const ctx = { agentId: "main", ...(workspaceDir ? { workspaceDir } : {}) };
   const call = buildCallContext({ toolName: "exec", params: { command } }, ctx, policy, "/workspace");
   return { call, decision: evaluatePolicy(policy, call, null, "/workspace") };
@@ -66,4 +68,38 @@ test("workspace path without a host workspace mapping cannot be silently allowed
 
 test("container-system paths remain governed lexically because host realpath is not the sandbox namespace", () => {
   assert.equal(decide("cat /etc/os-release").decision.effect, "allow");
+});
+
+test("explicit physical mapping permits an external bind mounted below /workspace", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "ap-workspace-"));
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), "ap-external-"));
+  fs.writeFileSync(path.join(external, "package.json"), "{}");
+  const mappings = [
+    { id: "openclaw-source", virtual: "/workspace/openclaw-src", host: external, agents: ["main"] }
+  ];
+  assert.equal(decide("cat /workspace/openclaw-src/package.json", workspace, mappings).decision.effect, "allow");
+});
+
+test("explicit physical mapping still asks when a symlink escapes the mapped host tree", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "ap-workspace-"));
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), "ap-external-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "ap-outside-"));
+  fs.writeFileSync(path.join(outside, "secret.txt"), "secret");
+  fs.symlinkSync(path.join(outside, "secret.txt"), path.join(external, "link"));
+  const mappings = [
+    { id: "openclaw-source", virtual: "/workspace/openclaw-src", host: external, agents: ["main"] }
+  ];
+  const out = decide("cat /workspace/openclaw-src/link", workspace, mappings);
+  assert.equal(out.decision.effect, "ask");
+  assert.match(out.decision.ruleId, /exec-path-physical/);
+});
+
+test("physical mapping validation rejects duplicate ids and relative host paths", () => {
+  assert.throws(() => policyWithPaths([
+    { id: "dup", virtual: "/workspace/a", host: "/tmp/a" },
+    { id: "dup", virtual: "/workspace/b", host: "/tmp/b" }
+  ]), /duplicate/);
+  assert.throws(() => policyWithPaths([
+    { id: "bad", virtual: "/workspace/a", host: "relative/path" }
+  ]), /absolute host path/);
 });
