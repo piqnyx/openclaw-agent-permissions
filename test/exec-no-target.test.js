@@ -1,16 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluatePolicy, validatePolicy } from "../src/exec-no-target.js";
+import { evaluatePolicy, extractPathlessCommandWords, validatePolicy } from "../src/exec-no-target.js";
 import { buildCallContext } from "../src/profiles.js";
 
-function makePolicy(withPaths = true) {
+function makePolicy(withPaths = true, withPathless = true) {
   const exec = {
     default: "ask",
     allowAlways: false,
     deny: [],
     ask: [],
     allow: [
-      { id: "readonly", regex: "^\\s*(?:id|rg|cat)(?:\\s+[^;&|<>]+)*\\s*$", match: "full" }
+      {
+        id: "readonly",
+        regex: "^\\s*(?:id|pwd|uname|rg|cat)(?:\\s+[^;&|<>]+)*(?:\\s*(?:&&|\\|\\||;|\\|)\\s*(?:id|pwd|uname|rg|cat)(?:\\s+[^;&|<>]+)*)*\\s*$",
+        match: "full"
+      }
     ]
   };
   if (withPaths) {
@@ -22,6 +26,7 @@ function makePolicy(withPaths = true) {
         { id: "tmp", path: { regex: "^/tmp(?:/.*)?$" } }
       ]
     };
+    if (withPathless) exec.paths.pathless = { allow: ["id", "pwd", "uname"] };
   }
   return validatePolicy({
     version: 3,
@@ -38,8 +43,19 @@ function decide(command, policy = makePolicy()) {
   return evaluatePolicy(policy, call, null, "/workspace");
 }
 
-test("exec path guard asks when a command has no explicit path operands", () => {
-  for (const command of ["rg needle", "cat secret", "id"]) {
+test("pathless command words are extracted from simple shell chains", () => {
+  assert.deepEqual(extractPathlessCommandWords("id && uname | pwd"), ["id", "uname", "pwd"]);
+  assert.equal(extractPathlessCommandWords("/usr/bin/id"), null);
+});
+
+test("configured pathless commands may pass with no explicit filesystem targets", () => {
+  for (const command of ["id", "pwd", "uname", "id && uname", "pwd ; id && uname"]) {
+    assert.equal(decide(command).effect, "allow");
+  }
+});
+
+test("untrusted no-target commands still ask", () => {
+  for (const command of ["rg needle", "cat secret", "id && rg needle"]) {
     const out = decide(command);
     assert.equal(out.effect, "ask");
     assert.match(out.ruleId, /exec-path-no-targets/);
@@ -50,6 +66,24 @@ test("explicit allowed paths still permit a matching readonly command", () => {
   assert.equal(decide("cat /tmp/x").effect, "allow");
 });
 
+test("missing pathless configuration keeps no-target exec fail-closed", () => {
+  assert.equal(decide("id", makePolicy(true, false)).effect, "ask");
+});
+
 test("no-target guard is disabled when exec.paths is absent", () => {
   assert.equal(decide("id", makePolicy(false)).effect, "allow");
+});
+
+test("pathless validation rejects unknown fields invalid names and duplicates", () => {
+  const unknown = makePolicy();
+  unknown.exec.paths.pathless.extra = true;
+  assert.throws(() => validatePolicy(unknown), /exec\.paths\.pathless\.extra: unknown field/);
+
+  const invalid = makePolicy();
+  invalid.exec.paths.pathless.allow.push("bad command");
+  assert.throws(() => validatePolicy(invalid), /simple command names/);
+
+  const duplicate = makePolicy();
+  duplicate.exec.paths.pathless.allow.push("id");
+  assert.throws(() => validatePolicy(duplicate), /duplicate command names/);
 });
