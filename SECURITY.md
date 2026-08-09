@@ -1,0 +1,66 @@
+# Security Policy
+
+## Threat model
+
+`agent-permissions` is intended to reduce accidental or cooperative-agent misuse and to make operator authorization explicit and auditable.
+
+It is **not** intended to contain arbitrary malicious code after the operator has granted shell/process authority.
+
+The security model assumes multiple independent layers:
+
+1. Docker/OpenClaw sandboxing provides the physical container boundary.
+2. Read-only binds protect immutable external resources.
+3. `agent-permissions` authorizes recognized filesystem, exec, and generic tool calls.
+4. Operator approval remains required where policy returns ASK.
+
+## Important boundaries
+
+### Filesystem zones are not shell sandbox rules
+
+An approved `exec`/`bash` command is a separate authority. Filesystem zones do not rewrite or confine arbitrary shell syntax.
+
+Keep `exec.default` conservative and use Docker/container controls for resources that must remain physically protected.
+
+### Symlinks and hardlinks
+
+The plugin performs lexical sandbox-path normalization and policy matching. It does not reimplement filesystem canonicalization.
+
+OpenClaw's filesystem safety layer and the operating system/container boundary are responsible for symlink and hardlink enforcement.
+
+### Tool profiles
+
+A custom tool that mutates files must be mapped to an appropriate filesystem capability and path selectors. Otherwise it is evaluated as a generic tool and will not receive filesystem-zone semantics.
+
+### Learned approvals
+
+Filesystem learned approvals are exact-path, operation-scoped, and agent-scoped. Generic-tool learned approvals are agent/tool/capability scoped and can therefore cover changing parameters.
+
+Exec permanent approvals are intentionally unsupported; durable shell trust belongs in explicit operator-owned regex rules.
+
+## Recommended deployment
+
+- keep `failClosed=true`;
+- keep the policy and learned-policy files outside agent workspaces;
+- protect policy files with restrictive permissions;
+- use read-only Docker binds for immutable external trees;
+- avoid duplicate plugin installations;
+- keep `exec.default=ask` unless you have a narrowly reviewed rule set;
+- place narrow filesystem zones before broad fallbacks;
+- validate policy before gateway restart;
+- keep backups before destructive acceptance tests.
+
+## Reporting a vulnerability
+
+Please open a GitHub issue only for non-sensitive defects.
+
+For a vulnerability that would expose secrets, cross an agent boundary, bypass a DENY rule, or permit unauthorized filesystem mutation, use GitHub's private vulnerability reporting feature when available rather than posting exploit details publicly.
+
+Include:
+
+- OpenClaw version and commit if known;
+- plugin version;
+- relevant policy fragment with secrets removed;
+- tool name and parameters;
+- expected result;
+- actual result;
+- whether the block/failure came from `agent-permissions`, OpenClaw filesystem safety, Docker, or the operating system.

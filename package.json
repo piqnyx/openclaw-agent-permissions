@@ -1,0 +1,48 @@
+{
+  "name": "openclaw-agent-permissions",
+  "version": "2.0.4",
+  "private": true,
+  "type": "module",
+  "description": "Fail-closed filesystem, exec-regex, and generic-tool permission policy for sandboxed OpenClaw agents",
+  "main": "dist/index.js",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "test": "node --test",
+    "check": "npm run build && npm run policy:check -- ./permissions.example.json && npm test",
+    "policy:check": "node ./scripts/validate-policy.mjs"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.7.2",
+      "minGatewayVersion": ">=2026.7.2"
+    },
+    "build": {
+      "openclawMainCommitChecked": "50c7444"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "keywords": [
+    "openclaw",
+    "permissions",
+    "sandbox",
+    "policy",
+    "security",
+    "multi-agent"
+  ],
+  "author": "piqnyx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/piqnyx/openclaw-agent-permissions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/piqnyx/openclaw-agent-permissions/issues"
+  },
+  "homepage": "https://github.com/piqnyx/openclaw-agent-permissions#readme"
+}

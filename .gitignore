@@ -1,0 +1,8 @@
+node_modules/
+npm-debug.log*
+*.log
+*.tmp
+.DS_Store
+coverage/
+.permissions-test/
+permissions.learned.json

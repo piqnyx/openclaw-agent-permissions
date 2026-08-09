@@ -1,0 +1,193 @@
+{
+  "version": 3,
+  "defaults": {
+    "effect": "ask"
+  },
+  "learning": {
+    "enabled": true,
+    "path": "/home/openclaw/.openclaw/permissions.learned.json"
+  },
+  "filesystem": {
+    "default": "deny",
+    "allowAlways": true,
+    "zones": [
+      {
+        "id": "system-temp-shell-only",
+        "description": "Container tmpfs/runtime paths are intentionally shell-only; OpenClaw file tools cannot bridge them reliably",
+        "path": {
+          "regex": "^/(?:tmp|var/tmp|run|var/run)(?:/.*)?$"
+        },
+        "read": "deny",
+        "write": "deny",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-core-readonly",
+        "description": "Core instruction files are readable but immutable through filesystem tools",
+        "path": {
+          "regex": "^/workspace/(?:AGENTS|DREAMS)\\.md$"
+        },
+        "read": "allow",
+        "write": "deny",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-profile-files",
+        "description": "Selected OpenClaw profile/memory files may be edited but not removed or moved",
+        "path": {
+          "regex": "^/workspace/(?:USER|IDENTITY|SOUL|MEMORY)\\.md$"
+        },
+        "read": "allow",
+        "write": "allow",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-diary-files",
+        "description": "Canonical OpenClaw daily memory notes and legacy memory-prefixed daily notes may be edited but not removed or moved",
+        "path": {
+          "regex": "^/workspace/memory/(?:memory-)?\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])\\.md$"
+        },
+        "read": "allow",
+        "write": "allow",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-draft",
+        "description": "Persistent unrestricted agent working area",
+        "path": {
+          "regex": "^/workspace/draft(?:/.*)?$"
+        },
+        "read": "allow",
+        "write": "allow",
+        "delete": "allow",
+        "move": "allow",
+        "execute": "allow"
+      },
+      {
+        "id": "workspace-openclaw-source-readonly",
+        "description": "Main agent may read the mounted OpenClaw source tree",
+        "path": {
+          "regex": "^/workspace/openclaw-src(?:/.*)?$"
+        },
+        "read": "allow",
+        "write": "deny",
+        "delete": "deny",
+        "move": "deny",
+        "agents": [
+          "main"
+        ],
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-openclaw-source-deny-others",
+        "description": "Agents other than main may not access the main-only OpenClaw source mount",
+        "path": {
+          "regex": "^/workspace/openclaw-src(?:/.*)?$"
+        },
+        "read": "deny",
+        "write": "deny",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-memory-default",
+        "description": "Everything under workspace/memory except explicitly allowed daily memory files is inaccessible to agents",
+        "path": {
+          "regex": "^/workspace/memory(?:/.*)?$"
+        },
+        "read": "deny",
+        "write": "deny",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      },
+      {
+        "id": "workspace-default",
+        "description": "Workspace is readable by default but mutations require an explicit narrower zone",
+        "path": {
+          "regex": "^/workspace(?:/.*)?$"
+        },
+        "read": "allow",
+        "write": "deny",
+        "delete": "deny",
+        "move": "deny",
+        "execute": "deny"
+      }
+    ]
+  },
+  "exec": {
+    "default": "ask",
+    "allowAlways": false,
+    "deny": [],
+    "ask": [],
+    "allow": []
+  },
+  "tools": {
+    "default": "ask",
+    "defaultAllowAlways": false,
+    "deny": [],
+    "ask": [
+      {
+        "id": "memory-read-approval",
+        "capabilities": [
+          "memory.read"
+        ],
+        "allowAlways": true,
+        "description": "Explicit semantic-memory reads require approval until remembered for this agent"
+      },
+      {
+        "id": "memory-write-approval",
+        "capabilities": [
+          "memory.write"
+        ],
+        "allowAlways": false,
+        "description": "Explicit semantic-memory mutations require per-call approval"
+      },
+      {
+        "id": "external-mutations",
+        "capabilities": [
+          "external.write",
+          "browser",
+          "process"
+        ],
+        "allowAlways": false,
+        "description": "External or process mutations require per-call approval"
+      }
+    ],
+    "allow": [
+      {
+        "id": "example-readonly-mcp-tools",
+        "tools": [
+          {
+            "regex": "^mcp__example_(?:search|read)$"
+          }
+        ],
+        "description": "Example allowlist for selected read-only MCP tools; replace with tools used by your installation"
+      },
+      {
+        "id": "builtin-web-read",
+        "capabilities": [
+          "network.read"
+        ],
+        "description": "Read-only web tools are allowed"
+      },
+      {
+        "id": "session-read",
+        "capabilities": [
+          "session.read"
+        ],
+        "description": "Session inspection is read-only"
+      }
+    ]
+  },
+  "toolProfiles": {}
+}
