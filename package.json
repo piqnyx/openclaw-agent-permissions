@@ -3,7 +3,7 @@
   "version": "2.0.5",
   "private": true,
   "type": "module",
-  "description": "Fail-closed filesystem, exec-regex, and generic-tool permission policy for sandboxed OpenClaw agents",
+  "description": "Fail-closed filesystem, exec command/path, and generic-tool permission policy for sandboxed OpenClaw agents",
   "main": "dist/index.js",
   "exports": "./dist/index.js",
   "scripts": {
