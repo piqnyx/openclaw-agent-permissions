@@ -1,4 +1,5 @@
-import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./exec-no-target.js";
+import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./local-input-policy.js";
+import { rewriteLocalInputParams } from "./local-inputs.js";
 import { buildCallContext, rewriteAllowedFilesystemMutationParams } from "./profiles.js";
 
 function clamp(value, max) {
@@ -57,7 +58,15 @@ function register(api) {
       // has already been decided against the canonical /workspace path, rewrite
       // only execution parameters to workspace-relative form. This preserves the
       // model-facing sandbox contract and leaves reads, exec and process untouched.
-      const executionParams = rewriteAllowedFilesystemMutationParams(call, policy, virtualWorkspaceRoot);
+      let executionParams = rewriteAllowedFilesystemMutationParams(call, policy, virtualWorkspaceRoot);
+
+      // Gateway-side tools may accept a local file path that the model sees in
+      // sandbox namespace. localInputs authorizes that sandbox-visible path with
+      // filesystem policy first, then rewrites only the declared parameter to a
+      // physically verified host path from pathMappings.
+      const localInputParams = rewriteLocalInputParams(call, executionParams ?? call.params);
+      if (localInputParams) executionParams = localInputParams;
+
       if (decision.effect === "allow") return executionParams ? { params: executionParams } : undefined;
 
       const approvalStore = learnedStore;
