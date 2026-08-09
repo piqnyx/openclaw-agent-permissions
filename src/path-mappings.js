@@ -139,6 +139,18 @@ export function resolveMappedPath(mappings, call, lexical, options = {}) {
 
   const relativePosix = lexical === mapping.virtual ? "" : path.posix.relative(mapping.virtual, lexical);
   const hostCandidate = path.resolve(rendered.host, ...relativePosix.split("/").filter(Boolean));
+
+  if (options.requireExistingTarget === true) {
+    try {
+      fs.lstatSync(hostCandidate);
+    } catch (err) {
+      if (err?.code === "ENOENT" || err?.code === "ENOTDIR") {
+        return { ok: false, code: "missing", reason: `mapped host target does not exist for ${lexical}` };
+      }
+      return { ok: false, code: "physical", reason: `mapped host target cannot be inspected for ${lexical}: ${String(err)}` };
+    }
+  }
+
   let ancestorInfo;
   let realAncestor;
   try {
