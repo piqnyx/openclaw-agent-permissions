@@ -4,7 +4,11 @@ import {
   evaluatePolicy as evaluateBasePolicy,
   validatePolicy as validateBasePolicy,
 } from "./exec-no-target.js";
-import { prepareLocalInputs, validateLocalInputs } from "./local-inputs.js";
+import {
+  analyzeLocalInputs,
+  resolveLocalInputMappings,
+  validateLocalInputs,
+} from "./local-inputs.js";
 import { validatePathMappings } from "./path-mappings.js";
 
 function stripLocalInputPolicy(policy) {
@@ -14,9 +18,22 @@ function stripLocalInputPolicy(policy) {
   return copy;
 }
 
+function validateMappingReferences(policy) {
+  const mappingIds = new Set((policy.pathMappings ?? []).map((mapping) => mapping.id));
+  for (let i = 0; i < (policy.localInputs ?? []).length; i++) {
+    const input = policy.localInputs[i];
+    for (const mappingId of input.mappingIds ?? []) {
+      if (!mappingIds.has(mappingId)) {
+        throw new Error(`localInputs[${i}].mappingIds: unknown path mapping '${mappingId}'`);
+      }
+    }
+  }
+}
+
 export function validatePolicy(policy) {
   validatePathMappings(policy?.pathMappings);
   validateLocalInputs(policy?.localInputs);
+  validateMappingReferences(policy ?? {});
   validateBasePolicy(stripLocalInputPolicy(policy));
   return policy;
 }
@@ -34,7 +51,7 @@ function evaluateLocalInputFilesystem(policy, call, learnedStore, virtualWorkspa
   const targets = Array.isArray(call.fsTargets) ? call.fsTargets : [];
   if (targets.length === 0) return null;
 
-  let firstAsk = null;
+  const asks = [];
   for (const target of targets) {
     const capability = filesystemCapability(target.operation);
     if (!capability) {
@@ -59,22 +76,57 @@ function evaluateLocalInputFilesystem(policy, call, learnedStore, virtualWorkspa
     };
     const decision = evaluateBasePolicy(policy, fsCall, learnedStore, virtualWorkspaceRoot);
     if (decision.effect === "deny") return decision;
-    if (decision.effect === "ask" && !firstAsk) firstAsk = decision;
+    if (decision.effect === "ask") asks.push(decision);
   }
-  return firstAsk;
+
+  if (asks.length === 0) return null;
+  if (asks.length === 1) return asks[0];
+
+  const askTargets = asks.flatMap((decision) => decision.askTargets ?? []);
+  return {
+    kind: "filesystem",
+    operation: "mixed",
+    effect: "ask",
+    ruleId: [...new Set(asks.map((decision) => decision.ruleId))].join(","),
+    reason: asks.map((decision) => decision.reason).join("; "),
+    allowAlways: asks.every((decision) => decision.allowAlways === true),
+    askPaths: [...new Set(askTargets.map((target) => target.path))],
+    askTargets,
+  };
+}
+
+function mergeAskDecisions(localFsDecision, toolDecision) {
+  const fsAsk = localFsDecision?.effect === "ask" ? localFsDecision : null;
+  const toolAsk = toolDecision?.effect === "ask" ? toolDecision : null;
+  if (!fsAsk) return toolDecision;
+  if (!toolAsk) return fsAsk;
+
+  return {
+    kind: "composite",
+    effect: "ask",
+    ruleId: `${fsAsk.ruleId}+${toolAsk.ruleId}`,
+    reason: `${fsAsk.reason}; ${toolAsk.reason}`,
+    allowAlways: false,
+  };
 }
 
 export function evaluatePolicy(policy, call, learnedStore = null, virtualWorkspaceRoot = "/workspace") {
-  const preparationDecision = prepareLocalInputs(policy, call, virtualWorkspaceRoot);
-  if (preparationDecision) return preparationDecision;
+  const analysisDecision = analyzeLocalInputs(policy, call, virtualWorkspaceRoot);
+  if (analysisDecision) return analysisDecision;
 
   const localFsDecision = evaluateLocalInputFilesystem(policy, call, learnedStore, virtualWorkspaceRoot);
   if (localFsDecision?.effect === "deny") return localFsDecision;
 
   const toolDecision = evaluateBasePolicy(policy, call, learnedStore, virtualWorkspaceRoot);
   if (toolDecision.effect === "deny") return toolDecision;
-  if (localFsDecision?.effect === "ask") return localFsDecision;
-  return toolDecision;
+
+  // Resolve host paths only after both the sandbox-visible filesystem target and
+  // the generic tool itself have survived static DENY policy. This avoids probing
+  // host paths for calls that authorization would reject anyway.
+  const mappingDecision = resolveLocalInputMappings(policy, call);
+  if (mappingDecision) return mappingDecision;
+
+  return mergeAskDecisions(localFsDecision, toolDecision);
 }
 
 export class PolicyLoader {
