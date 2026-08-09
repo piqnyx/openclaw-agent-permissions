@@ -1,6 +1,6 @@
 import { matchAny, validateMatcher } from "./matchers.js";
 import { getValuesAtPath, normalizeToolPath } from "./paths.js";
-import { resolveMappedPath } from "./path-mappings.js";
+import { resolveMappedPath, selectPathMapping } from "./path-mappings.js";
 
 const URI_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
 const FS_OPERATIONS = new Set(["read", "write", "delete", "move", "execute"]);
@@ -88,6 +88,10 @@ function deny(ruleId, reason) {
   };
 }
 
+function hintSuffix(input) {
+  return input.unmappedHint ? ` ${input.unmappedHint}` : "";
+}
+
 function rewriteStringValues(value, rewrite) {
   if (typeof value === "string") return rewrite(value);
   if (!Array.isArray(value)) return value;
@@ -144,11 +148,16 @@ function rewriteValuesAtSelector(root, selector, rewrite) {
   return changed;
 }
 
-export function prepareLocalInputs(policy, call, virtualWorkspaceRoot = "/workspace") {
+export function analyzeLocalInputs(policy, call, virtualWorkspaceRoot = "/workspace") {
   const inputs = (policy.localInputs ?? []).filter((input) => contextMatches(input, call));
-  if (inputs.length === 0) return null;
+  if (inputs.length === 0) {
+    call.localInputCandidates = [];
+    return null;
+  }
 
-  const rewrites = [];
+  const candidates = [];
+  const seen = new Map();
+
   for (const input of inputs) {
     const values = getValuesAtPath(call.params, input.selector).flatMap(scalarStrings);
     for (const rawValue of values) {
@@ -171,24 +180,80 @@ export function prepareLocalInputs(policy, call, virtualWorkspaceRoot = "/worksp
         );
       }
 
-      addFsTarget(call, input.operation, normalized);
-      const resolved = resolveMappedPath(policy.pathMappings ?? [], call, normalized, {
-        mappingIds: input.mappingIds,
-      });
-      if (!resolved.ok) {
-        const hint = input.unmappedHint ? ` ${input.unmappedHint}` : "";
+      const mapping = selectPathMapping(policy.pathMappings ?? [], call, normalized, input.mappingIds);
+      if (!mapping) {
         return deny(
           "<local-input-unmapped>",
-          `${call.toolName}.${input.selector} local path ${normalized} is not safely gateway-mapped: ${resolved.reason}.${hint}`.trim(),
+          `${call.toolName}.${input.selector} local path ${normalized} has no configured gateway mapping.${hintSuffix(input)}`.trim(),
         );
       }
 
-      rewrites.push({
+      const key = `${input.selector}\0${rawValue}`;
+      const declaration = JSON.stringify({ operation: input.operation, mappingIds: input.mappingIds ?? null });
+      const prior = seen.get(key);
+      if (prior && prior !== declaration) {
+        return deny(
+          "<local-input-conflict>",
+          `${call.toolName}.${input.selector} matched conflicting local-input declarations`,
+        );
+      }
+      if (prior) continue;
+      seen.set(key, declaration);
+
+      addFsTarget(call, input.operation, normalized);
+      candidates.push({
+        ruleId: input.id,
         selector: input.selector,
-        from: rawValue,
-        to: resolved.hostPath,
+        rawValue,
+        normalized,
+        operation: input.operation,
+        mappingIds: input.mappingIds,
+        unmappedHint: input.unmappedHint,
       });
     }
+  }
+
+  call.localInputCandidates = candidates;
+  return null;
+}
+
+export function resolveLocalInputMappings(policy, call) {
+  const candidates = Array.isArray(call.localInputCandidates) ? call.localInputCandidates : [];
+  if (candidates.length === 0) {
+    call.localInputRewrites = [];
+    return null;
+  }
+
+  const rewrites = [];
+  const seen = new Map();
+
+  for (const candidate of candidates) {
+    const resolved = resolveMappedPath(policy.pathMappings ?? [], call, candidate.normalized, {
+      mappingIds: candidate.mappingIds,
+      requireExistingTarget: candidate.operation === "read",
+    });
+    if (!resolved.ok) {
+      const hint = candidate.unmappedHint ? ` ${candidate.unmappedHint}` : "";
+      return deny(
+        "<local-input-physical>",
+        `${call.toolName}.${candidate.selector} local path ${candidate.normalized} is not safely gateway-resolvable: ${resolved.reason}.${hint}`.trim(),
+      );
+    }
+
+    const key = `${candidate.selector}\0${candidate.rawValue}`;
+    const prior = seen.get(key);
+    if (prior && prior !== resolved.hostPath) {
+      return deny(
+        "<local-input-conflict>",
+        `${call.toolName}.${candidate.selector} resolved to conflicting gateway paths`,
+      );
+    }
+    seen.set(key, resolved.hostPath);
+    rewrites.push({
+      selector: candidate.selector,
+      from: candidate.rawValue,
+      to: resolved.hostPath,
+    });
   }
 
   call.localInputRewrites = rewrites;
