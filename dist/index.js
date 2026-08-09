@@ -1,4 +1,4 @@
-import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./exec-paths.js";
+import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./exec-physical.js";
 import { buildCallContext, rewriteAllowedFilesystemMutationParams } from "./profiles.js";
 
 function clamp(value, max) {
