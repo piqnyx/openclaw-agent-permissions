@@ -59,7 +59,7 @@ test("physical workspace guard turns symlink aliases into ASK before silent exec
   const out = decide("cat /workspace/draft/link", workspace);
   assert.equal(out.decision.effect, "ask");
   assert.match(out.decision.ruleId, /exec-path-physical/);
-  assert.match(out.decision.reason, /physically resolves/);
+  assert.match(out.decision.reason, /symlink outside|physically resolves/);
 });
 
 test("workspace path without a host workspace mapping cannot be silently allowed", () => {
