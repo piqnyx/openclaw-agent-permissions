@@ -73,6 +73,7 @@ const BUILTIN = {
   memory_store: { capability: "memory.write", operation: "store", pathParams: [] },
   memory_forget: { capability: "memory.write", operation: "forget", pathParams: [] },
   add_resource: { capability: "memory.write", operation: "add_resource", pathParams: [] },
+  remove_resource: { capability: "memory.write", operation: "remove_resource", pathParams: [] },
   add_skill: { capability: "memory.write", operation: "add_skill", pathParams: [] },
 
   web_search: { capability: "network.read", operation: "search", pathParams: [] },

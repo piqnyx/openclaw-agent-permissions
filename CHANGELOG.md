@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.7
+
+- classify OpenViking `remove_resource` as a built-in `memory.write` tool with operation `remove_resource`
+- keep `remove_resource` out of `localInputs`: it authorizes a Viking resource URI, not a sandbox-local filesystem source path
+- add regression coverage proving the shipped memory-write policy treats `remove_resource` as a per-call ASK with no Allow always
+- refresh committed `dist/profiles.js` alongside source so linked production installs load the same built-in profile
+
 ## 2.0.6
 
 - add reusable top-level `pathMappings` that map sandbox-visible paths to physically verified gateway-host paths, including `{agentId}` host templates for multi-agent workspaces
