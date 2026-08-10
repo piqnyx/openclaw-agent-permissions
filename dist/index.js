@@ -1,6 +1,7 @@
 import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./local-input-policy.js";
 import { rewriteLocalInputParams } from "./local-inputs.js";
 import { buildCallContext, rewriteAllowedFilesystemMutationParams } from "./profiles.js";
+import { formatApprovalDetails } from "./approval-details.js";
 
 function clamp(value, max) {
   const text = String(value);
@@ -71,12 +72,21 @@ function register(api) {
 
       const approvalStore = learnedStore;
       const canAlways = Boolean(approvalStore && decision.allowAlways && typeof call.agentId === "string" && call.agentId.length > 0);
-      const pathText = call.paths.length ? `\nPaths: ${call.paths.join(", ")}` : "";
+      const pathText = call.paths.length ? `Paths: ${call.paths.join(", ")}` : "";
+      const detailText = formatApprovalDetails(call);
+      const descriptionLines = [
+        `Agent: ${call.agentId ?? "unknown"}`,
+        detailText,
+        pathText,
+        `Rule: ${decision.ruleId ?? "<default>"}`,
+        `Capability: ${call.capability}`,
+        rememberText({ ...decision, allowAlways: canAlways }, call),
+      ].filter(Boolean);
       return {
         ...(executionParams ? { params: executionParams } : {}),
         requireApproval: {
           title: clamp(`Allow ${call.toolName}?`, 80),
-          description: clamp(`Rule: ${decision.ruleId ?? "<default>"}\nAgent: ${call.agentId ?? "unknown"}\nCapability: ${call.capability}${pathText}\n${rememberText({ ...decision, allowAlways: canAlways }, call)}`, 480),
+          description: clamp(descriptionLines.join("\n"), 480),
           severity: ["exec", "fs.write", "fs.delete", "fs.move", "external.write", "memory.write", "browser", "process"].includes(call.capability) ? "critical" : "warning",
           timeoutMs: approvalTimeoutMs,
           allowedDecisions: canAlways ? ["allow-once", "allow-always", "deny"] : ["allow-once", "deny"],
