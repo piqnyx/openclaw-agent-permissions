@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.11
+
+- add one visible blank line before and after the common approval action section so Telegram/Web separate the requested action from surrounding approval metadata
+- keep the existing wrap-safe Unicode separators, 300-character preferred action budget, secret-safe generic tool rendering, and authorization semantics unchanged
+
 ## 2.0.10
 
 - replace side-wall approval boxes with wrap-safe Unicode section separators that remain readable in Telegram and Web when clients reflow long lines
