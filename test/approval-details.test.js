@@ -177,4 +177,28 @@ test("approval descriptions stay bounded for long commands, paths and rule IDs",
   assert.ok(description.length <= 500);
   assert.match(description, /omitted/u);
   assert.match(description, /final-target/u);
+  assert.match(description, /Policy:/u);
+  assert.match(description, /Permanent: disabled/u);
+});
+
+test("long future-tool action cannot crowd policy or permanent status out of the approval", () => {
+  const description = formatApprovalDescription(
+    {
+      toolName: `mcp__future_${"tool".repeat(80)}`,
+      agentId: "main",
+      capability: `network.${"read".repeat(30)}`,
+      operation: `search_${"deep".repeat(30)}`,
+      paths: [`/workspace/${"nested/".repeat(30)}target.txt`],
+      params: { token: "must-never-render" },
+    },
+    { kind: "tool", ruleId: `future-rule-${"x".repeat(200)}`, allowAlways: true },
+    { canAlways: true },
+  );
+
+  assert.ok(description.length <= 500);
+  assert.match(description, /┌─ TOOL REQUEST/u);
+  assert.match(description, /omitted/u);
+  assert.match(description, /Policy:/u);
+  assert.match(description, /Permanent: available/u);
+  assert.doesNotMatch(description, /must-never-render/u);
 });
