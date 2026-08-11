@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.9
+
+- render every ASK through one compact approval presentation for exec, filesystem, OpenViking, MCP, generic, and future unknown tools
+- put the actual requested action first inside a visible Unicode frame so Web and Telegram approval surfaces remain understandable without surrounding chat context
+- show exec command text directly, including visible newline/tab/control-character markers and bounded head/tail truncation for long commands
+- keep tool parameters hidden by default; unknown MCP/future tools expose the exact tool name without dumping arbitrary arguments or secrets
+- retain the allowlisted `remove_resource` URI/recursive/wait details inside the same common request frame
+- show permanent-approval availability and scope consistently for ASK rules with and without `Allow always`
+- keep authorization, learning, fail-closed semantics, policy matching, and execution parameter rewriting unchanged
+
+## 2.0.8
+
+- show allowlisted OpenViking `remove_resource` target URI, recursive flag, and wait flag in approval prompts
+- sanitize and bound displayed approval detail values without dumping arbitrary tool parameters
+- keep `memory.write` classification and per-call approval semantics unchanged
+
 ## 2.0.7
 
 - classify OpenViking `remove_resource` as a built-in `memory.write` tool with operation `remove_resource`
@@ -22,10 +38,10 @@
 ## 2.0.5
 
 - add an independent `exec.paths` policy layer so silently allowed shell commands can be restricted by sandbox-visible filesystem targets without coupling shell authorization to `filesystem.zones`
-- combine exec command and path decisions fail-closed with `DENY > ASK > ALLOW`; path permission never upgrades an unsafe or unknown command
+- combine exec command and exec path decisions fail-closed with `DENY > ASK > ALLOW`; path permission never upgrades an unsafe or unknown command
 - normalize explicit absolute and relative exec path operands before matching, including lexical `.` / `..` traversal
-- treat dynamic/ambiguous shell path analysis and path expansions conservatively as ASK
-- add configurable `exec.paths.pathless.allow` command-word trust for commands that can safely run without an explicit filesystem target; unproven no-target commands ASK
+- treat dynamic/ambiguous shell/path constructs conservatively as ASK
+- add configurable `exec.paths.pathless.allow` command-word trust for commands that can safely run without explicit filesystem targets; unproven no-target commands ASK
 - add host-side physical verification for silently allowed `/workspace/**` exec targets to catch symlink aliases before shell execution
 - add configurable `exec.paths.physicalMappings` for external sandbox binds such as `/workspace/openclaw-src` -> `/home/openclaw/openclaw`, with optional agent scoping and longest-prefix selection
 - keep non-workspace container paths lexical because host `/etc`, `/usr`, `/tmp`, and similar paths are not the sandbox namespace
