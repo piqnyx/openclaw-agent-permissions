@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.14
+
+- replace filename-looking exec-path guesses with command-aware operand classification for common read-only inspection commands
+- stop treating dotted command names and network-looking operands such as `mkfs.ext4`, `1.1.1.1`, and `example.com` as relative filesystem paths
+- detect bare relative file operands for file-reading commands, including grep/rg file-bearing options, jq input files, find roots, and find path-valued predicates
+- keep implicit recursive cwd access, static globs, dynamic shell syntax, unsafe redirection, and command substitution fail-closed to ASK
+- keep URI operands out of filesystem path policy even when a command-aware classifier marks a positional operand as path-bearing
+- add regression coverage and a reusable audit corpus for the separate operator-policy tuning pass; runtime code does not rewrite `permissions.json`
+
 ## 2.0.13
 
 - treat a trailing slash on an already-authorized mapped directory as the same physical virtual target during exec path verification
@@ -57,7 +66,7 @@
 - rewrite only declared local-input parameters after authorization so gateway-side tools can consume files that agents know as `/workspace/...`
 - reject unmapped sandbox-only paths fail-closed and support operator guidance such as copying `/tmp` artifacts into `/workspace/draft` before retrying
 - reject undeclared URI schemes instead of accidentally treating them as local paths
-- reuse top-level mappings for exec physical verification, so one dynamic `/workspace -> .../{agentId}` mapping covers every agent while longer mappings still win for nested external binds
+- reuse top-level `pathMappings` for exec physical verification, so one dynamic `/workspace -> .../{agentId}` mapping covers every agent while longer mappings still win for nested external binds
 - preserve legacy `exec.paths.physicalMappings` for backward compatibility
 - add regression coverage for per-agent mapping, remote resource sources, protected filesystem zones, unmapped `/tmp`, unsupported URI schemes, parameter rewriting, and exec physical verification
 
