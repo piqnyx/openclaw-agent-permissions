@@ -80,7 +80,7 @@ export function validateExecPaths(execPaths) {
     if (!Array.isArray(rules)) throw new Error(`exec.paths.${bucket} must be array`);
     rules.forEach((rule, i) => {
       validateExecPathRule(rule, `exec.paths.${bucket}[${i}]`);
-      if (ids.has(rule.id)) throw new Error(`${where}.id: duplicate '${rule.id}'`);
+      if (ids.has(rule.id)) throw new Error(`exec.paths.${bucket}[${i}].id: duplicate '${rule.id}'`);
       ids.add(rule.id);
     });
   }
