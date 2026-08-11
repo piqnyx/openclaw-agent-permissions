@@ -15,9 +15,12 @@ The plugin must not silently broaden operator policy. Scripts and runtime code d
 - File-bearing options such as `grep -f FILE`, `wc --files0-from FILE`, and `realpath --relative-to DIR` are path checked.
 - Pattern/filter/format option values remain data, not filesystem targets.
 - `find` roots are paths; matcher patterns are not paths; path-valued predicates such as `-newer FILE` remain protected.
+- URI operands are not converted into workspace filesystem paths even when they appear in command positions that normally carry paths.
 - Implicit recursive cwd access (`rg PATTERN`, recursive `grep` without an explicit search path, `find` without a root, `du` without a target) remains ASK.
 - Static globs remain ASK because host-side physical verification cannot prove the shell-expanded target set or symlink behavior before execution.
 - Dynamic shell syntax, unsafe redirection, background execution, process substitution, and command substitution remain fail-closed.
+
+`test/exec-policy-audit-cases.json` is the shared inventory gathered from live approval testing. `test/exec-policy-audit-matrix.test.js` wires parser-critical invariants from that inventory into CI. Final operator-policy expectations are intentionally tested only after manual edits to the live `permissions.json`.
 
 ## Policy classification target
 
