@@ -7,8 +7,8 @@ const TOOL_APPROVAL_FIELDS = Object.freeze({
 });
 
 const DESCRIPTION_MAX_CHARS = 500;
-const ACTION_CONTENT_MAX_CHARS = 190;
-const BOX_RULE_WIDTH = 36;
+const ACTION_CONTENT_PREFERRED_MAX_CHARS = 300;
+const SECTION_RULE_CHARS = 10;
 
 function clamp(value, maxChars) {
   const text = String(value);
@@ -73,35 +73,21 @@ function visibleCommand(value) {
     }
     out += ch;
   }
-  return truncateMiddle(out, ACTION_CONTENT_MAX_CHARS);
+  return out;
 }
 
-function wrapLine(value, width = 96) {
-  const text = String(value);
-  if (!text) return ["<empty>"];
-  const lines = [];
-  let remaining = text;
-  while (remaining.length > width) {
-    lines.push(remaining.slice(0, width));
-    remaining = `↳ ${remaining.slice(width)}`;
-  }
-  lines.push(remaining);
-  return lines;
-}
-
-function renderBox(label, values) {
+function renderSection(label, values, maxActionChars) {
   const safeLabel = sanitizeScalar(label, 28) ?? "REQUEST";
-  const horizontal = "─".repeat(Math.max(4, BOX_RULE_WIDTH - safeLabel.length));
-  const lines = [`┌─ ${safeLabel} ${horizontal}`];
+  const top = `${"═".repeat(SECTION_RULE_CHARS)} ${safeLabel} ${"═".repeat(SECTION_RULE_CHARS)}`;
+  const bottom = `${"═".repeat(SECTION_RULE_CHARS - 2)} END ${safeLabel} ${"═".repeat(SECTION_RULE_CHARS - 2)}`;
+  const fixedChars = top.length + bottom.length + 2;
+  const availableContentChars = Math.max(32, maxActionChars - fixedChars);
+  const contentChars = Math.min(ACTION_CONTENT_PREFERRED_MAX_CHARS, availableContentChars);
   const raw = truncateMiddle(
     values.map((value) => String(value)).join("\n"),
-    ACTION_CONTENT_MAX_CHARS,
+    contentChars,
   );
-  for (const logicalLine of raw.split("\n")) {
-    for (const visualLine of wrapLine(logicalLine)) lines.push(`│ ${visualLine}`);
-  }
-  lines.push(`└${"─".repeat(BOX_RULE_WIDTH + 3)}`);
-  return lines.join("\n");
+  return [top, raw, bottom].join("\n");
 }
 
 export function approvalDetailsForCall(call) {
@@ -125,7 +111,7 @@ export function formatApprovalDetails(call) {
   return details.map(({ label, value }) => `${label}: ${value}`).join("\n");
 }
 
-function actionForCall(call, decision) {
+function actionForCall(call, decision, maxActionChars) {
   if (call?.capability === "exec") {
     const command =
       typeof call?.params?.command === "string"
@@ -133,7 +119,7 @@ function actionForCall(call, decision) {
         : typeof call?.params?.cmd === "string"
           ? call.params.cmd
           : "";
-    return renderBox("COMMAND", [visibleCommand(command)]);
+    return renderSection("COMMAND", [visibleCommand(command)], maxActionChars);
   }
 
   if (call?.toolName === "remove_resource") {
@@ -143,14 +129,18 @@ function actionForCall(call, decision) {
       .filter((entry) => entry.label !== "Target URI")
       .map((entry) => `${entry.label.toLowerCase()}=${entry.value}`)
       .join(" · ");
-    return renderBox("REMOVE RESOURCE", flags ? [uri, flags] : [uri]);
+    return renderSection("REMOVE RESOURCE", flags ? [uri, flags] : [uri], maxActionChars);
   }
 
   if (decision?.kind === "filesystem" || String(call?.capability ?? "").startsWith("fs.")) {
     const targets = Array.isArray(decision?.askTargets) && decision.askTargets.length > 0
       ? decision.askTargets.map((target) => `${target.operation}: ${target.path}`)
       : (call?.paths ?? []).map((path) => `${call?.operation ?? "access"}: ${path}`);
-    return renderBox("FILESYSTEM REQUEST", [targets.join("\n") || "<unresolved filesystem target>"]);
+    return renderSection(
+      "FILESYSTEM REQUEST",
+      [targets.join("\n") || "<unresolved filesystem target>"],
+      maxActionChars,
+    );
   }
 
   const toolName = sanitizeScalar(call?.toolName ?? "unknown tool", 120) ?? "unknown tool";
@@ -165,7 +155,7 @@ function actionForCall(call, decision) {
   if (Array.isArray(call?.paths) && call.paths.length > 0) {
     lines.push(`target: ${call.paths.join(", ")}`);
   }
-  return renderBox("TOOL REQUEST", lines);
+  return renderSection("TOOL REQUEST", lines, maxActionChars);
 }
 
 function permanentText(call, decision, canAlways) {
@@ -183,10 +173,12 @@ function permanentText(call, decision, canAlways) {
 
 export function formatApprovalDescription(call, decision, options = {}) {
   const canAlways = options.canAlways === true;
-  const action = actionForCall(call, decision);
   const rule = sanitizeScalar(decision?.ruleId ?? "<default>", 64) ?? "<default>";
   const agent = sanitizeScalar(call?.agentId ?? "unknown", 40) ?? "unknown";
   const metadata = `Policy: ${rule} · Agent: ${agent}`;
   const permanent = permanentText(call, decision, canAlways);
+  const suffixChars = metadata.length + permanent.length + 2;
+  const maxActionChars = Math.max(96, DESCRIPTION_MAX_CHARS - suffixChars);
+  const action = actionForCall(call, decision, maxActionChars);
   return clamp([action, metadata, permanent].join("\n"), DESCRIPTION_MAX_CHARS);
 }
