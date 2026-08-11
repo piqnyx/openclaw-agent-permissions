@@ -177,8 +177,8 @@ export function formatApprovalDescription(call, decision, options = {}) {
   const agent = sanitizeScalar(call?.agentId ?? "unknown", 40) ?? "unknown";
   const metadata = `Policy: ${rule} · Agent: ${agent}`;
   const permanent = permanentText(call, decision, canAlways);
-  const suffixChars = metadata.length + permanent.length + 2;
+  const suffixChars = metadata.length + permanent.length + 4;
   const maxActionChars = Math.max(96, DESCRIPTION_MAX_CHARS - suffixChars);
   const action = actionForCall(call, decision, maxActionChars);
-  return clamp([action, metadata, permanent].join("\n"), DESCRIPTION_MAX_CHARS);
+  return clamp(`\n${action}\n\n${metadata}\n${permanent}`, DESCRIPTION_MAX_CHARS);
 }
