@@ -1,6 +1,6 @@
 {
   "name": "openclaw-agent-permissions",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "private": true,
   "type": "module",
   "description": "Fail-closed filesystem, exec command/path, and generic-tool permission policy for sandboxed OpenClaw agents",
