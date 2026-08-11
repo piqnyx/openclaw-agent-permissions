@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.10
+
+- replace side-wall approval boxes with wrap-safe Unicode section separators that remain readable in Telegram and Web when clients reflow long lines
+- remove artificial command wrapping and continuation markers; only real command newlines remain explicitly marked with `↵`
+- increase preferred visible action content from 190 to 300 characters while dynamically reserving room for policy and permanent-approval metadata
+- keep the same unified presentation for exec, filesystem, OpenViking `remove_resource`, MCP, generic, and future unknown-tool approvals
+- keep authorization, learning, fail-closed behavior, tool parameter secrecy, and approval semantics unchanged
+
 ## 2.0.9
 
 - render every ASK through one compact approval presentation for exec, filesystem, OpenViking, MCP, generic, and future unknown tools
@@ -31,7 +39,7 @@
 - rewrite only declared local-input parameters after authorization so gateway-side tools can consume files that agents know as `/workspace/...`
 - reject unmapped sandbox-only paths fail-closed and support operator guidance such as copying `/tmp` artifacts into `/workspace/draft` before retrying
 - reject undeclared URI schemes instead of accidentally treating them as local paths
-- reuse top-level `pathMappings` for exec physical verification, so one dynamic `/workspace -> .../{agentId}` mapping covers every agent while longer mappings still win for nested external binds
+- reuse top-level mappings for exec physical verification, so one dynamic `/workspace -> .../{agentId}` mapping covers every agent while longer mappings still win for nested external binds
 - preserve legacy `exec.paths.physicalMappings` for backward compatibility
 - add regression coverage for per-agent mapping, remote resource sources, protected filesystem zones, unmapped `/tmp`, unsupported URI schemes, parameter rewriting, and exec physical verification
 
