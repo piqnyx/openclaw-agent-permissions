@@ -14,6 +14,29 @@ const FIND_PATTERN_OPTIONS = new Set([
   "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename",
 ]);
 
+const ALL_POSITIONAL_PATH_COMMANDS = new Set([
+  "ls", "cat", "tac", "head", "tail", "wc", "stat", "du", "df", "readlink", "realpath",
+  "cut", "diff", "cmp", "md5sum", "sha1sum", "sha224sum", "sha256sum", "sha384sum", "sha512sum",
+]);
+
+const OPTION_VALUE_WORDS = new Map([
+  ["ls", new Set(["-I", "--ignore", "--hide", "--quoting-style", "--time-style", "--block-size"])],
+  ["head", new Set(["-n", "--lines", "-c", "--bytes"])],
+  ["tail", new Set(["-n", "--lines", "-c", "--bytes", "-s", "--sleep-interval", "--pid", "--max-unchanged-stats"])],
+  ["stat", new Set(["-c", "--format", "--printf"])],
+  ["du", new Set(["-B", "--block-size", "-d", "--max-depth", "--threshold", "--exclude"])],
+  ["df", new Set(["-B", "--block-size", "--output", "-t", "--type", "-x", "--exclude-type"])],
+  ["cut", new Set(["-b", "--bytes", "-c", "--characters", "-d", "--delimiter", "-f", "--fields", "--output-delimiter"])],
+  ["diff", new Set(["-I", "--ignore-matching-lines", "-F", "--show-function-line", "--label", "--width", "--horizon-lines", "--tabsize", "--ifdef"])],
+  ["cmp", new Set(["-i", "--ignore-initial", "-n", "--bytes"])],
+]);
+
+const PATH_OPTION_WORDS = new Map([
+  ["wc", new Set(["--files0-from"])],
+  ["du", new Set(["--exclude-from", "--files0-from"])],
+  ["realpath", new Set(["--relative-to", "--relative-base"])],
+]);
+
 function asArray(value) { return Array.isArray(value) ? value : [value]; }
 function assertObject(value, where) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${where}: must be object`);
@@ -246,11 +269,10 @@ function looksLikeExplicitPath(value, quoted) {
   if (value === "." || value === ".." || value === "~") return true;
   if (value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("~/")) return true;
   if (value.includes("/")) return true;
-  if (!quoted && /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_.-]+)+$/u.test(value)) return true;
   return false;
 }
 
-function pathValueFromWord(word) {
+function explicitPathValueFromWord(word) {
   const text = word.text;
   if (!text) return null;
 
@@ -267,22 +289,202 @@ function hasPathExpansion(value) {
   return /[*?\[\]{}]/u.test(value);
 }
 
-function findPatternWordIndexes(words) {
-  const ignored = new Set();
+function wordsBySegment(words) {
   const bySegment = new Map();
   words.forEach((word, index) => {
     if (!bySegment.has(word.segment)) bySegment.set(word.segment, []);
     bySegment.get(word.segment).push(index);
   });
+  return bySegment;
+}
 
-  for (const indexes of bySegment.values()) {
-    if (indexes.length === 0 || words[indexes[0]].text !== "find") continue;
-    for (let pos = 1; pos < indexes.length - 1; pos++) {
-      const index = indexes[pos];
-      if (FIND_PATTERN_OPTIONS.has(words[index].text)) ignored.add(indexes[pos + 1]);
+function optionValueIndexes(command, words, indexes) {
+  const ignored = new Set();
+  const pathValues = new Set();
+  const ordinary = OPTION_VALUE_WORDS.get(command) ?? new Set();
+  const pathOptions = PATH_OPTION_WORDS.get(command) ?? new Set();
+
+  for (let pos = 1; pos < indexes.length - 1; pos++) {
+    const index = indexes[pos];
+    const text = words[index].text;
+    if (ordinary.has(text)) ignored.add(indexes[pos + 1]);
+    if (pathOptions.has(text)) pathValues.add(indexes[pos + 1]);
+  }
+  return { ignored, pathValues };
+}
+
+function grepOperandIndexes(words, indexes, command) {
+  const paths = new Set();
+  const ignored = new Set();
+  let patternProvided = false;
+  let positionalPatternSeen = false;
+  let optionsEnded = false;
+
+  const nonPathValueOptions = command === "grep"
+    ? new Set(["-A", "--after-context", "-B", "--before-context", "-C", "--context", "-m", "--max-count", "--label", "-D", "--devices", "-d", "--directories", "--exclude", "--include", "--exclude-dir"])
+    : new Set(["-A", "--after-context", "-B", "--before-context", "-C", "--context", "-m", "--max-count", "-d", "--max-depth", "-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "-E", "--encoding", "-j", "--threads", "-r", "--replace", "--sort", "--sortr", "--pre-glob"]);
+
+  for (let pos = 1; pos < indexes.length; pos++) {
+    const index = indexes[pos];
+    const text = words[index].text;
+
+    if (!optionsEnded && text === "--") {
+      optionsEnded = true;
+      continue;
+    }
+
+    if (!optionsEnded && (text === "-f" || text === "--file" || (command === "rg" && text === "--ignore-file"))) {
+      if (pos + 1 < indexes.length) {
+        paths.add(indexes[pos + 1]);
+        patternProvided = text !== "--ignore-file" || patternProvided;
+        pos++;
+      }
+      continue;
+    }
+    if (!optionsEnded && (text.startsWith("--file=") || (command === "rg" && text.startsWith("--ignore-file=")))) {
+      if (text.startsWith("--file=")) patternProvided = true;
+      continue;
+    }
+    if (!optionsEnded && command === "grep" && (text === "-e" || text === "--regexp")) {
+      if (pos + 1 < indexes.length) {
+        ignored.add(indexes[pos + 1]);
+        patternProvided = true;
+        pos++;
+      }
+      continue;
+    }
+    if (!optionsEnded && command === "grep" && (text.startsWith("--regexp=") || /^-e.+/u.test(text))) {
+      patternProvided = true;
+      continue;
+    }
+    if (!optionsEnded && nonPathValueOptions.has(text)) {
+      if (pos + 1 < indexes.length) {
+        ignored.add(indexes[pos + 1]);
+        pos++;
+      }
+      continue;
+    }
+    if (!optionsEnded && text.startsWith("-")) continue;
+
+    if (!patternProvided && !positionalPatternSeen) {
+      positionalPatternSeen = true;
+      continue;
+    }
+    paths.add(index);
+  }
+
+  return { paths, ignored, hasSearchPaths: paths.size > 0 };
+}
+
+function jqOperandIndexes(words, indexes) {
+  const paths = new Set();
+  const ignored = new Set();
+  let filterSeen = false;
+
+  for (let pos = 1; pos < indexes.length; pos++) {
+    const index = indexes[pos];
+    const text = words[index].text;
+    if (text === "--arg" || text === "--argjson") {
+      if (pos + 1 < indexes.length) ignored.add(indexes[++pos]);
+      if (pos + 1 < indexes.length) ignored.add(indexes[++pos]);
+      continue;
+    }
+    if (text === "--slurpfile" || text === "--rawfile") {
+      if (pos + 1 < indexes.length) ignored.add(indexes[++pos]);
+      if (pos + 1 < indexes.length) paths.add(indexes[++pos]);
+      continue;
+    }
+    if (text === "-L") {
+      if (pos + 1 < indexes.length) paths.add(indexes[++pos]);
+      continue;
+    }
+    if (text.startsWith("-")) continue;
+    if (!filterSeen) {
+      filterSeen = true;
+      continue;
+    }
+    paths.add(index);
+  }
+  return { paths, ignored };
+}
+
+function classifyOperandIndexes(words, reasons) {
+  const pathIndexes = new Set();
+  const ignoredIndexes = new Set();
+  const commandIndexes = new Set();
+
+  for (const indexes of wordsBySegment(words).values()) {
+    if (indexes.length === 0) continue;
+    const commandIndex = indexes[0];
+    const command = words[commandIndex].text;
+    commandIndexes.add(commandIndex);
+
+    if (command === "find") {
+      let rootCount = 0;
+      for (let pos = 1; pos < indexes.length; pos++) {
+        const index = indexes[pos];
+        const text = words[index].text;
+        if (FIND_PATTERN_OPTIONS.has(text) && pos + 1 < indexes.length) {
+          ignoredIndexes.add(indexes[++pos]);
+          continue;
+        }
+        if (text.startsWith("-") || text === "!" || text === "(" || text === ")") continue;
+        if (rootCount === pos - 1) {
+          pathIndexes.add(index);
+          rootCount++;
+        }
+      }
+      if (rootCount === 0 && !reasons.includes("implicit recursive cwd access")) reasons.push("implicit recursive cwd access");
+      continue;
+    }
+
+    if (command === "grep" || command === "rg") {
+      const classified = grepOperandIndexes(words, indexes, command);
+      classified.paths.forEach((index) => pathIndexes.add(index));
+      classified.ignored.forEach((index) => ignoredIndexes.add(index));
+      if (command === "rg" && !classified.hasSearchPaths && !reasons.includes("implicit recursive cwd access")) {
+        reasons.push("implicit recursive cwd access");
+      }
+      const recursiveGrep = command === "grep" && indexes.some((index) => /^(?:-.*[rR].*|--recursive|--dereference-recursive)$/u.test(words[index].text));
+      if (recursiveGrep && !classified.hasSearchPaths && !reasons.includes("implicit recursive cwd access")) {
+        reasons.push("implicit recursive cwd access");
+      }
+      continue;
+    }
+
+    if (command === "jq") {
+      const classified = jqOperandIndexes(words, indexes);
+      classified.paths.forEach((index) => pathIndexes.add(index));
+      classified.ignored.forEach((index) => ignoredIndexes.add(index));
+      continue;
+    }
+
+    const optionValues = optionValueIndexes(command, words, indexes);
+    optionValues.ignored.forEach((index) => ignoredIndexes.add(index));
+    optionValues.pathValues.forEach((index) => pathIndexes.add(index));
+
+    if (ALL_POSITIONAL_PATH_COMMANDS.has(command)) {
+      let positionalCount = 0;
+      let optionsEnded = false;
+      for (let pos = 1; pos < indexes.length; pos++) {
+        const index = indexes[pos];
+        if (ignoredIndexes.has(index) || pathIndexes.has(index)) continue;
+        const text = words[index].text;
+        if (!optionsEnded && text === "--") {
+          optionsEnded = true;
+          continue;
+        }
+        if (!optionsEnded && text.startsWith("-") && text !== "-") continue;
+        pathIndexes.add(index);
+        positionalCount++;
+      }
+      if (command === "du" && positionalCount === 0 && !reasons.includes("implicit recursive cwd access")) {
+        reasons.push("implicit recursive cwd access");
+      }
     }
   }
-  return ignored;
+
+  return { pathIndexes, ignoredIndexes, commandIndexes };
 }
 
 function normalizeExecPath(raw, virtualWorkspaceRoot) {
@@ -295,12 +497,21 @@ export function analyzeExecPaths(command, virtualWorkspaceRoot = "/workspace") {
   const scanned = tokenize(command);
   const paths = [];
   const reasons = [...scanned.reasons];
-  const ignoredFindPatterns = findPatternWordIndexes(scanned.words);
+  const classified = classifyOperandIndexes(scanned.words, reasons);
 
   scanned.words.forEach((word, index) => {
-    if (ignoredFindPatterns.has(index)) return;
-    const raw = pathValueFromWord(word);
+    if (classified.ignoredIndexes.has(index)) return;
+
+    let raw = null;
+    if (classified.pathIndexes.has(index)) {
+      raw = word.text;
+    } else if (classified.commandIndexes.has(index)) {
+      raw = explicitPathValueFromWord(word);
+    } else {
+      raw = explicitPathValueFromWord(word);
+    }
     if (!raw) return;
+
     if (hasPathExpansion(raw)) {
       if (!reasons.includes("path expansion or glob")) reasons.push("path expansion or glob");
       return;
