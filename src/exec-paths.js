@@ -80,7 +80,7 @@ export function validateExecPaths(execPaths) {
     if (!Array.isArray(rules)) throw new Error(`exec.paths.${bucket} must be array`);
     rules.forEach((rule, i) => {
       validateExecPathRule(rule, `exec.paths.${bucket}[${i}]`);
-      if (ids.has(rule.id)) throw new Error(`exec.paths.${bucket}[${i}].id: duplicate '${rule.id}'`);
+      if (ids.has(rule.id)) throw new Error(`${where}.id: duplicate '${rule.id}'`);
       ids.add(rule.id);
     });
   }
@@ -521,7 +521,7 @@ export function analyzeExecPaths(command, virtualWorkspaceRoot = "/workspace") {
     let raw = null;
     if (classified.pathIndexes.has(index)) raw = word.text;
     else raw = explicitPathValueFromWord(word);
-    if (!raw) return;
+    if (!raw || isUri(raw)) return;
 
     if (hasPathExpansion(raw)) {
       if (!reasons.includes("path expansion or glob")) reasons.push("path expansion or glob");
