@@ -1,7 +1,7 @@
 import { LearnedRuleStore, PolicyLoader, evaluatePolicy } from "./local-input-policy.js";
 import { rewriteLocalInputParams } from "./local-inputs.js";
 import { buildCallContext, rewriteAllowedFilesystemMutationParams } from "./profiles.js";
-import { formatApprovalDetails } from "./approval-details.js";
+import { formatApprovalDescription } from "./approval-details.js";
 
 function clamp(value, max) {
   const text = String(value);
@@ -10,12 +10,6 @@ function clamp(value, max) {
 function preview(call) {
   const pathPart = call.paths.length ? ` paths=${call.paths.join(",")}` : "";
   return `${call.toolName} capability=${call.capability} operation=${call.operation}${pathPart}`;
-}
-function rememberText(decision, call) {
-  if (!decision.allowAlways) return "Permanent approval disabled for this rule.";
-  if (decision.kind === "filesystem") return `Always remembers only the ASK operation/path target(s), for agent ${call.agentId ?? "unknown"}.`;
-  if (decision.kind === "exec") return `Always remembers this exact command for this agent.`;
-  return `Always remembers this tool + capability for this agent; parameters may change.`;
 }
 
 function register(api) {
@@ -72,21 +66,11 @@ function register(api) {
 
       const approvalStore = learnedStore;
       const canAlways = Boolean(approvalStore && decision.allowAlways && typeof call.agentId === "string" && call.agentId.length > 0);
-      const pathText = call.paths.length ? `Paths: ${call.paths.join(", ")}` : "";
-      const detailText = formatApprovalDetails(call);
-      const descriptionLines = [
-        `Agent: ${call.agentId ?? "unknown"}`,
-        detailText,
-        pathText,
-        `Rule: ${decision.ruleId ?? "<default>"}`,
-        `Capability: ${call.capability}`,
-        rememberText({ ...decision, allowAlways: canAlways }, call),
-      ].filter(Boolean);
       return {
         ...(executionParams ? { params: executionParams } : {}),
         requireApproval: {
           title: clamp(`Allow ${call.toolName}?`, 80),
-          description: clamp(descriptionLines.join("\n"), 480),
+          description: formatApprovalDescription(call, decision, { canAlways }),
           severity: ["exec", "fs.write", "fs.delete", "fs.move", "external.write", "memory.write", "browser", "process"].includes(call.capability) ? "critical" : "warning",
           timeoutMs: approvalTimeoutMs,
           allowedDecisions: canAlways ? ["allow-once", "allow-always", "deny"] : ["allow-once", "deny"],
