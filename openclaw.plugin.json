@@ -2,7 +2,7 @@
   "id": "agent-permissions",
   "name": "Agent Permissions Policy",
   "description": "Fail-closed filesystem, exec command/path, and generic-tool permission policy for sandboxed OpenClaw agents.",
-  "version": "2.0.13",
+  "version": "2.0.14",
   "activation": {
     "onStartup": true
   },
