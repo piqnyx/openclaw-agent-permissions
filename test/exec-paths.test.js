@@ -61,7 +61,7 @@ test("safe readonly diagnostics preserve real targets and ignore find pattern op
     ],
     [
       'grep -ri "rerank" /workspace/openclaw-src/ --include="*.ts" -l 2>/dev/null | head -20',
-      ["/workspace/openclaw-src"],
+      ["/workspace/openclaw-src/"],
     ],
     [
       'grep -ri "rerank" /workspace/openclaw-src/src/plugins/openviking/ --include="*.ts" -l 2>/dev/null || echo "NOT_FOUND"',
