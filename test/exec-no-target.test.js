@@ -54,12 +54,18 @@ test("configured pathless commands may pass with no explicit filesystem targets"
   }
 });
 
-test("untrusted no-target commands still ask", () => {
-  for (const command of ["rg needle", "cat secret", "id && rg needle"]) {
+test("untrusted implicit recursive cwd commands still ask as ambiguous", () => {
+  for (const command of ["rg needle", "id && rg needle"]) {
     const out = decide(command);
     assert.equal(out.effect, "ask");
-    assert.match(out.ruleId, /exec-path-no-targets/);
+    assert.match(out.ruleId, /exec-path-ambiguous/);
   }
+});
+
+test("bare relative file operands are path-checked instead of treated as pathless", () => {
+  const out = decide("cat secret");
+  assert.equal(out.effect, "ask");
+  assert.match(out.ruleId, /exec-path-default/);
 });
 
 test("explicit allowed paths still permit a matching readonly command", () => {
