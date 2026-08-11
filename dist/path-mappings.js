@@ -172,7 +172,8 @@ export function resolveMappedPath(mappings, call, lexical, options = {}) {
 
   const physicalRelative = path.relative(hostRoot, realCandidate).split(path.sep).join("/");
   const physicalVirtual = physicalRelative ? path.posix.join(mapping.virtual, physicalRelative) : mapping.virtual;
-  if (physicalVirtual !== lexical) {
+  const comparableLexical = lexical.length > 1 ? lexical.replace(/\/+$/u, "") : lexical;
+  if (physicalVirtual !== comparableLexical) {
     return { ok: false, code: "alias", reason: `${lexical} physically resolves to ${physicalVirtual} via path mapping ${mapping.id}` };
   }
 
