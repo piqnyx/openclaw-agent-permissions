@@ -93,11 +93,12 @@ function renderBox(label, values) {
   const safeLabel = sanitizeScalar(label, 28) ?? "REQUEST";
   const horizontal = "─".repeat(Math.max(4, BOX_RULE_WIDTH - safeLabel.length));
   const lines = [`┌─ ${safeLabel} ${horizontal}`];
-  for (const value of values) {
-    const raw = String(value);
-    for (const logicalLine of raw.split("\n")) {
-      for (const visualLine of wrapLine(logicalLine)) lines.push(`│ ${visualLine}`);
-    }
+  const raw = truncateMiddle(
+    values.map((value) => String(value)).join("\n"),
+    ACTION_CONTENT_MAX_CHARS,
+  );
+  for (const logicalLine of raw.split("\n")) {
+    for (const visualLine of wrapLine(logicalLine)) lines.push(`│ ${visualLine}`);
   }
   lines.push(`└${"─".repeat(BOX_RULE_WIDTH + 3)}`);
   return lines.join("\n");
@@ -149,8 +150,7 @@ function actionForCall(call, decision) {
     const targets = Array.isArray(decision?.askTargets) && decision.askTargets.length > 0
       ? decision.askTargets.map((target) => `${target.operation}: ${target.path}`)
       : (call?.paths ?? []).map((path) => `${call?.operation ?? "access"}: ${path}`);
-    const text = truncateMiddle(targets.join("\n") || "<unresolved filesystem target>", ACTION_CONTENT_MAX_CHARS);
-    return renderBox("FILESYSTEM REQUEST", [text]);
+    return renderBox("FILESYSTEM REQUEST", [targets.join("\n") || "<unresolved filesystem target>"]);
   }
 
   const toolName = sanitizeScalar(call?.toolName ?? "unknown tool", 120) ?? "unknown tool";
@@ -163,8 +163,7 @@ function actionForCall(call, decision) {
     lines.push(`capability: ${capability}`);
   }
   if (Array.isArray(call?.paths) && call.paths.length > 0) {
-    const targets = truncateMiddle(call.paths.join(", "), 120);
-    lines.push(`target: ${targets}`);
+    lines.push(`target: ${call.paths.join(", ")}`);
   }
   return renderBox("TOOL REQUEST", lines);
 }
