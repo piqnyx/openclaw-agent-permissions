@@ -53,8 +53,53 @@ test("exec path analyzer supports read-only chains and ignores URI arguments", (
   assert.deepEqual(out.paths, ["/workspace/draft/a.txt"]);
 });
 
+test("safe readonly diagnostics preserve real targets and ignore find pattern operands", () => {
+  const cases = [
+    [
+      'grep -B 5 -A 20 "remote\\|apiUrl\\|model.*rerank" /workspace/openclaw-src/packages/memory-host-sdk/src/host/backend-config.ts | head -60',
+      ["/workspace/openclaw-src/packages/memory-host-sdk/src/host/backend-config.ts"],
+    ],
+    [
+      'grep -ri "rerank" /workspace/openclaw-src/ --include="*.ts" -l 2>/dev/null | head -20',
+      ["/workspace/openclaw-src"],
+    ],
+    [
+      'grep -ri "rerank" /workspace/openclaw-src/src/plugins/openviking/ --include="*.ts" -l 2>/dev/null || echo "NOT_FOUND"',
+      ["/workspace/openclaw-src/src/plugins/openviking"],
+    ],
+    [
+      'find / -name "config.yaml" -path "*openviking*" 2>/dev/null | head -5',
+      ["/"],
+    ],
+    [
+      'find /workspace -name "ov.conf" -o -name "openviking.conf" -o -name "config.yaml" -path "*/openviking/*" 2>/dev/null | head -5',
+      ["/workspace"],
+    ],
+  ];
+
+  for (const [command, expectedPaths] of cases) {
+    const out = analyzeExecPaths(command, "/workspace");
+    assert.equal(out.ambiguous, false, `${command}: ${out.reasons.join(", ")}`);
+    assert.deepEqual(out.paths, expectedPaths, command);
+  }
+});
+
+test("only harmless redirections are exempted from ambiguity", () => {
+  for (const command of [
+    "cat /etc/os-release >/dev/null",
+    "cat /etc/os-release 2>/dev/null",
+    "cat /etc/os-release 1>&2",
+    "cat /etc/os-release 2>&1",
+  ]) {
+    assert.equal(analyzeExecPaths(command).ambiguous, false, command);
+  }
+  assert.equal(analyzeExecPaths("cat /etc/os-release 2>/tmp/errors.log").ambiguous, true);
+  assert.equal(analyzeExecPaths("cat /etc/os-release > /workspace/draft/out.txt").ambiguous, true);
+});
+
 test("dynamic shell constructs and path globs are fail-closed to ASK", () => {
   assert.equal(analyzeExecPaths('cat "$(printf /etc/passwd)"').ambiguous, true);
+  assert.equal(analyzeExecPaths("cat `printf /etc/passwd`").ambiguous, true);
   assert.equal(analyzeExecPaths("cat /etc/*.conf").ambiguous, true);
   assert.equal(decide('cat "$(printf /etc/passwd)"').decision.effect, "ask");
 });
