@@ -11,8 +11,9 @@ const EFFECTS = new Set(["allow", "ask", "deny"]);
 const EXEC_PATH_KEYS = new Set(["default", "deny", "ask", "allow"]);
 const EXEC_PATH_RULE_KEYS = new Set(["id", "description", "path", "agents", "sessions", "tools"]);
 const FIND_PATTERN_OPTIONS = new Set([
-  "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename",
+  "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename", "-lname", "-ilname",
 ]);
+const FIND_PATH_OPTIONS = new Set(["-newer", "-anewer", "-cnewer", "-samefile", "-files0-from"]);
 
 const ALL_POSITIONAL_PATH_COMMANDS = new Set([
   "ls", "cat", "tac", "head", "tail", "wc", "stat", "du", "df", "readlink", "realpath",
@@ -319,6 +320,7 @@ function grepOperandIndexes(words, indexes, command) {
   let patternProvided = false;
   let positionalPatternSeen = false;
   let optionsEnded = false;
+  let searchPathCount = 0;
 
   const nonPathValueOptions = command === "grep"
     ? new Set(["-A", "--after-context", "-B", "--before-context", "-C", "--context", "-m", "--max-count", "--label", "-D", "--devices", "-d", "--directories", "--exclude", "--include", "--exclude-dir"])
@@ -371,9 +373,10 @@ function grepOperandIndexes(words, indexes, command) {
       continue;
     }
     paths.add(index);
+    searchPathCount++;
   }
 
-  return { paths, ignored, hasSearchPaths: paths.size > 0 };
+  return { paths, ignored, hasSearchPaths: searchPathCount > 0 };
 }
 
 function jqOperandIndexes(words, indexes) {
@@ -408,6 +411,33 @@ function jqOperandIndexes(words, indexes) {
   return { paths, ignored };
 }
 
+function classifyFindOperands(words, indexes, pathIndexes, ignoredIndexes, reasons) {
+  let expressionStarted = false;
+  let rootCount = 0;
+
+  for (let pos = 1; pos < indexes.length; pos++) {
+    const index = indexes[pos];
+    const text = words[index].text;
+
+    if (!expressionStarted && !text.startsWith("-") && text !== "!" && text !== "(" && text !== ")") {
+      pathIndexes.add(index);
+      rootCount++;
+      continue;
+    }
+
+    expressionStarted = true;
+    if (FIND_PATTERN_OPTIONS.has(text) && pos + 1 < indexes.length) {
+      ignoredIndexes.add(indexes[++pos]);
+      continue;
+    }
+    if (FIND_PATH_OPTIONS.has(text) && pos + 1 < indexes.length) {
+      pathIndexes.add(indexes[++pos]);
+    }
+  }
+
+  if (rootCount === 0 && !reasons.includes("implicit recursive cwd access")) reasons.push("implicit recursive cwd access");
+}
+
 function classifyOperandIndexes(words, reasons) {
   const pathIndexes = new Set();
   const ignoredIndexes = new Set();
@@ -420,21 +450,7 @@ function classifyOperandIndexes(words, reasons) {
     commandIndexes.add(commandIndex);
 
     if (command === "find") {
-      let rootCount = 0;
-      for (let pos = 1; pos < indexes.length; pos++) {
-        const index = indexes[pos];
-        const text = words[index].text;
-        if (FIND_PATTERN_OPTIONS.has(text) && pos + 1 < indexes.length) {
-          ignoredIndexes.add(indexes[++pos]);
-          continue;
-        }
-        if (text.startsWith("-") || text === "!" || text === "(" || text === ")") continue;
-        if (rootCount === pos - 1) {
-          pathIndexes.add(index);
-          rootCount++;
-        }
-      }
-      if (rootCount === 0 && !reasons.includes("implicit recursive cwd access")) reasons.push("implicit recursive cwd access");
+      classifyFindOperands(words, indexes, pathIndexes, ignoredIndexes, reasons);
       continue;
     }
 
@@ -503,13 +519,8 @@ export function analyzeExecPaths(command, virtualWorkspaceRoot = "/workspace") {
     if (classified.ignoredIndexes.has(index)) return;
 
     let raw = null;
-    if (classified.pathIndexes.has(index)) {
-      raw = word.text;
-    } else if (classified.commandIndexes.has(index)) {
-      raw = explicitPathValueFromWord(word);
-    } else {
-      raw = explicitPathValueFromWord(word);
-    }
+    if (classified.pathIndexes.has(index)) raw = word.text;
+    else raw = explicitPathValueFromWord(word);
     if (!raw) return;
 
     if (hasPathExpansion(raw)) {
