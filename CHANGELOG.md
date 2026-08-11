@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.13
+
+- treat a trailing slash on an already-authorized mapped directory as the same physical virtual target during exec path verification
+- preserve the original shell command and lexical path for policy matching, logging, and execution; only the final physical identity comparison ignores trailing separators
+- keep symlink escape, mapping-scope, and fail-closed physical verification behavior unchanged
+
+## 2.0.12
+
+- reduce false ASK results for read-only diagnostics using ordinary backslashes inside quoted grep/find patterns
+- allow only harmless redirections to `/dev/null` plus `1>&2` / `2>&1` in exec path analysis
+- recognize `find` pattern operands such as `-name`, `-path`, and `-regex` as predicates rather than filesystem targets
+- preserve fail-closed ASK for command substitution, backticks, real file redirection, background/process-substitution ambiguity, and actual path globs
+
 ## 2.0.11
 
 - add one visible blank line before and after the common approval action section so Telegram/Web separate the requested action from surrounding approval metadata
