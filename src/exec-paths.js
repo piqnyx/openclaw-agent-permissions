@@ -10,6 +10,9 @@ import {
 const EFFECTS = new Set(["allow", "ask", "deny"]);
 const EXEC_PATH_KEYS = new Set(["default", "deny", "ask", "allow"]);
 const EXEC_PATH_RULE_KEYS = new Set(["id", "description", "path", "agents", "sessions", "tools"]);
+const FIND_PATTERN_OPTIONS = new Set([
+  "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename",
+]);
 
 function asArray(value) { return Array.isArray(value) ? value : [value]; }
 function assertObject(value, where) {
@@ -73,24 +76,76 @@ export function validatePolicy(policy) {
 
 function flushWord(words, state) {
   if (!state.text) return;
-  words.push({ text: state.text, quoted: state.quoted });
+  words.push({ text: state.text, quoted: state.quoted, segment: state.segment });
   state.text = "";
   state.quoted = false;
+}
+
+function stripSafeRedirections(command) {
+  let out = "";
+  let quote = null;
+
+  for (let i = 0; i < command.length;) {
+    const ch = command[i];
+
+    if (quote === "'") {
+      out += ch;
+      i++;
+      if (ch === "'") quote = null;
+      continue;
+    }
+    if (quote === '"') {
+      out += ch;
+      i++;
+      if (ch === "\\" && i < command.length) {
+        out += command[i];
+        i++;
+        continue;
+      }
+      if (ch === '"') quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "\\" && i + 1 < command.length) {
+      out += ch + command[i + 1];
+      i += 2;
+      continue;
+    }
+
+    const rest = command.slice(i);
+    const safe = rest.match(/^(?:(?:[012]?>>?|&>>?|[012]?<)[ \t]*\/dev\/null|[12]>&[12])(?=$|[ \t\r\n;&|])/u);
+    if (safe) {
+      out += " ".repeat(safe[0].length);
+      i += safe[0].length;
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
 }
 
 function tokenize(command) {
   const words = [];
   const reasons = [];
-  const state = { text: "", quoted: false };
+  const state = { text: "", quoted: false, segment: 0 };
   let quote = null;
 
   const ambiguous = (reason) => {
     if (!reasons.includes(reason)) reasons.push(reason);
   };
 
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i];
-    const next = command[i + 1] ?? "";
+  const sanitized = stripSafeRedirections(command);
+  for (let i = 0; i < sanitized.length; i++) {
+    const ch = sanitized[i];
+    const next = sanitized[i + 1] ?? "";
 
     if (quote === "'") {
       if (ch === "'") quote = null;
@@ -103,7 +158,17 @@ function tokenize(command) {
         quote = null;
         continue;
       }
-      if (ch === "$" || ch === "`" || ch === "\\") ambiguous("dynamic double-quoted shell expression");
+      if (ch === "$" || ch === "`") ambiguous("dynamic double-quoted shell expression");
+      if (ch === "\\") {
+        if (next === "\n" || next === "\r" || !next) {
+          ambiguous("dynamic double-quoted shell expression");
+          state.text += ch;
+          continue;
+        }
+        state.text += ch + next;
+        i++;
+        continue;
+      }
       state.text += ch;
       continue;
     }
@@ -122,11 +187,13 @@ function tokenize(command) {
 
     if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
       flushWord(words, state);
+      state.segment++;
       i++;
       continue;
     }
     if (ch === ";" || ch === "|") {
       flushWord(words, state);
+      state.segment++;
       continue;
     }
 
@@ -140,9 +207,19 @@ function tokenize(command) {
       ambiguous("shell redirection or process substitution");
       continue;
     }
-    if (ch === "$" || ch === "`" || ch === "\\" || ch === "(" || ch === ")") {
+    if (ch === "$" || ch === "`" || ch === "(" || ch === ")") {
       state.text += ch;
       ambiguous("dynamic shell expression");
+      continue;
+    }
+    if (ch === "\\") {
+      if (next === "\n" || next === "\r" || !next) {
+        state.text += ch;
+        ambiguous("dynamic shell expression");
+        continue;
+      }
+      state.text += ch + next;
+      i++;
       continue;
     }
     if (ch === "#" && state.text.length === 0) {
@@ -190,6 +267,24 @@ function hasPathExpansion(value) {
   return /[*?\[\]{}]/u.test(value);
 }
 
+function findPatternWordIndexes(words) {
+  const ignored = new Set();
+  const bySegment = new Map();
+  words.forEach((word, index) => {
+    if (!bySegment.has(word.segment)) bySegment.set(word.segment, []);
+    bySegment.get(word.segment).push(index);
+  });
+
+  for (const indexes of bySegment.values()) {
+    if (indexes.length === 0 || words[indexes[0]].text !== "find") continue;
+    for (let pos = 1; pos < indexes.length - 1; pos++) {
+      const index = indexes[pos];
+      if (FIND_PATTERN_OPTIONS.has(words[index].text)) ignored.add(indexes[pos + 1]);
+    }
+  }
+  return ignored;
+}
+
 function normalizeExecPath(raw, virtualWorkspaceRoot) {
   const normalized = normalizeToolPath(raw, virtualWorkspaceRoot);
   return typeof normalized === "string" && normalized ? normalized : null;
@@ -200,21 +295,23 @@ export function analyzeExecPaths(command, virtualWorkspaceRoot = "/workspace") {
   const scanned = tokenize(command);
   const paths = [];
   const reasons = [...scanned.reasons];
+  const ignoredFindPatterns = findPatternWordIndexes(scanned.words);
 
-  for (const word of scanned.words) {
+  scanned.words.forEach((word, index) => {
+    if (ignoredFindPatterns.has(index)) return;
     const raw = pathValueFromWord(word);
-    if (!raw) continue;
+    if (!raw) return;
     if (hasPathExpansion(raw)) {
       if (!reasons.includes("path expansion or glob")) reasons.push("path expansion or glob");
-      continue;
+      return;
     }
     const normalized = normalizeExecPath(raw, virtualWorkspaceRoot);
     if (!normalized) {
       if (!reasons.includes("unresolved path operand")) reasons.push("unresolved path operand");
-      continue;
+      return;
     }
     paths.push(normalized);
-  }
+  });
 
   return { paths: [...new Set(paths)], ambiguous: reasons.length > 0, reasons };
 }
