@@ -6,8 +6,10 @@ import { getValuesAtPath } from "./paths.js";
 import { validateToolProfiles } from "./profiles.js";
 
 const EFFECTS = new Set(["allow", "ask", "deny"]);
+import { isCodeModeCall } from "./code-mode.js";
+
 const FS_OPERATIONS = ["read", "write", "delete", "move", "execute"];
-const TOP_KEYS = new Set(["version", "defaults", "learning", "filesystem", "exec", "tools", "toolProfiles"]);
+const TOP_KEYS = new Set(["version", "defaults", "learning", "filesystem", "exec", "codeMode", "tools", "toolProfiles"]);
 
 function asArray(value) { return Array.isArray(value) ? value : [value]; }
 function assertObject(value, where) {
@@ -171,6 +173,7 @@ export function validatePolicy(policy) {
   validateToolProfiles(policy.toolProfiles);
   validateFilesystem(policy.filesystem);
   validateExec(policy.exec);
+  validateCodeMode(policy.codeMode);
   validateTools(policy.tools);
   return policy;
 }
@@ -272,6 +275,40 @@ function execMatches(entry, call, defaultMatch) {
   const match = regex.exec(command);
   return Boolean(match && match.index === 0 && match[0].length === command.length);
 }
+function validateCodeMode(section) {
+  if (section === undefined) return;
+  assertObject(section, "codeMode");
+  assertOnlyKeys(section, new Set(["default", "description", "agents", "sessions", "tools"]), "codeMode");
+  validateEffect(section.default ?? "ask", "codeMode.default");
+  if (section.description !== undefined && typeof section.description !== "string") {
+    throw new Error("codeMode.description: string required");
+  }
+  validateMatcherList(section.agents, "codeMode.agents");
+  validateMatcherList(section.sessions, "codeMode.sessions");
+  validateMatcherList(section.tools, "codeMode.tools");
+}
+
+/**
+ * The decision for a program, or null to leave the call to the exec rules.
+ *
+ * Null when the section is absent, when the payload is an ordinary command, and
+ * when the section is scoped to agents or sessions this call is not among -- a
+ * narrow scope must not widen into a blanket answer for everybody else.
+ */
+function evaluateCodeMode(policy, call) {
+  const section = policy.codeMode;
+  if (section === undefined || !isCodeModeCall(call)) return null;
+  if (!contextMatches(section, call)) return null;
+  return {
+    kind: "code-mode",
+    effect: section.default ?? "ask",
+    ruleId: "<code-mode>",
+    reason: section.description ?? "code-mode program; the tool calls it makes are policed individually",
+    allowAlways: false,
+    command: ""
+  };
+}
+
 function evaluateExec(policy, call, learnedStore) {
   if (call.capability !== "exec") return null;
   const command = typeof call.params.command === "string" ? call.params.command : typeof call.params.cmd === "string" ? call.params.cmd : "";
@@ -331,7 +368,9 @@ function evaluateTools(policy, call, learnedStore) {
 export function evaluatePolicy(policy, call, learnedStore = null) {
   const fsDecision = evaluateFilesystem(policy, call, learnedStore);
   if (fsDecision?.effect === "deny") return fsDecision;
-  const execDecision = evaluateExec(policy, call, learnedStore);
+  // A program is not a command, so the exec rules are not asked about it. Its own
+  // tool calls arrive separately and are policed by the same rules as ever.
+  const execDecision = evaluateCodeMode(policy, call) ?? evaluateExec(policy, call, learnedStore);
   if (execDecision?.effect === "deny") return execDecision;
   const toolDecision = evaluateTools(policy, call, learnedStore);
   if (toolDecision?.effect === "deny") return toolDecision;

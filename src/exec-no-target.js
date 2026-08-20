@@ -106,6 +106,10 @@ export function extractPathlessCommandWords(command) {
 export function evaluatePolicy(policy, call, learnedStore = null, virtualWorkspaceRoot = "/workspace") {
   const decision = evaluatePhysicalPolicy(policy, call, learnedStore, virtualWorkspaceRoot);
   if (call.capability !== "exec" || !policy.exec?.paths || decision.effect !== "allow") return decision;
+  // This guard exists to catch a command that touches files without naming them.
+  // A program names no files either, and the tool calls it makes are policed one by
+  // one with their real paths, so there is nothing here for it to protect.
+  if (decision.kind === "code-mode") return decision;
 
   if (Array.isArray(call.paths) && call.paths.length > 0) return decision;
 

@@ -136,7 +136,11 @@ silent exec:              only /tmp and a source tree
 
 or the reverse.
 
-### 5. Generic-tool policy
+### 5. Code mode
+
+`codeMode` decides what happens when the gateway hides the tool catalog behind a sandboxed guest and the model sends a program instead of a command. It replaces layers 3 and 4 for that one call, because a program has no command line for them to read. The tool calls the program then makes arrive separately and go through every layer as usual.
+
+### 6. Generic-tool policy
 
 Non-filesystem, non-exec tools use the `tools` policy and optional learned approvals.
 
@@ -227,6 +231,7 @@ Top-level structure:
   "learning": {},
   "filesystem": {},
   "exec": {},
+  "codeMode": {},
   "tools": {},
   "toolProfiles": {}
 }
@@ -705,6 +710,38 @@ Host-side physical verification is intentionally not applied to normal container
 
 Physical verification does not provide complete hardlink-alias detection and does not convert arbitrary shell execution into a hostile-code sandbox.
 
+## Code mode (`codeMode`)
+
+OpenClaw can put the tool catalog behind a QuickJS-WASI guest and expose only `exec` and `wait`. The model then writes a program that reaches tools through a bridge, which turns a dozen round trips into one.
+
+That outer call carries a program, so the exec layers have nothing true to say about it:
+
+- `exec.deny` / `exec.ask` / `exec.allow` regexes are matched against source code. A program with `rm -rf` inside a string literal matches; a program that does real damage through the bridge does not.
+- `exec.paths` operands are whatever the gateway's path extractor found in the program text. A live gateway produced `paths=/workspace/Basic/Pascal` from a program that merely named old languages.
+- The physical and `pathless.allow` guards then downgrade whatever survives, so in practice every program asks.
+
+`codeMode` answers that one call directly instead:
+
+```json
+"codeMode": {
+  "description": "code-mode program; the tool calls it makes are policed individually",
+  "default": "allow",
+  "agents": ["main"]
+}
+```
+
+Fields, all optional: `default` (`allow` / `ask` / `deny`, default `ask`), `description` (the reason shown in the log and the approval dialog), and `agents` / `sessions` / `tools`, which are ordinary [matchers](#matchers) with the same meaning they have everywhere else.
+
+**Omit the section and nothing changes**: a program keeps being judged by the exec rules exactly as before. The same is true when `agents` or `sessions` exclude the call — it falls through rather than inheriting a blanket answer meant for somebody else.
+
+What the section does *not* touch:
+
+- **Shell commands.** A payload is treated as a program only when it carries a `code` or a `language` field. Anything else is an ordinary exec call.
+- **The program's own tool calls.** Each bridge call arrives as its own `before_tool_call` with its real capability and its real paths, and is matched by the same zones, exec rules and tool rules as ever. That is what an `allow` here rests on.
+- **Permanent approval.** A code-mode decision never offers *allow always*; the section itself is the standing answer.
+
+Because `allow` here means "do not read this program", it is only as strong as the guest's isolation. Confirm that the guest is sealed — no `require`, no `process`, no filesystem — before granting it, and prefer scoping the section to the agents that actually run in code mode.
+
 ## Generic tool policy
 
 Generic rules can match by:
@@ -894,6 +931,7 @@ Important limits:
 6. **Tool profiles must match reality.** A custom filesystem-mutating tool must be profiled correctly or it will be treated as a generic tool.
 7. **Generic permanent approval is broader than filesystem permanent approval.** It is scoped by agent/tool/capability rather than exact parameters.
 8. **Policy is only as good as its ordering and mappings.** Narrow zones belong before broad fallbacks, and external physical mappings must match the real mount source.
+9. **`codeMode: allow` trusts the guest, not the program.** The program is never inspected; the guarantee comes from the sandboxed guest and from every bridge call being policed on its own. A guest that can reach the host directly makes this setting a blanket exec allow.
 
 See [SECURITY.md](SECURITY.md) for the threat model and reporting guidance.
 
