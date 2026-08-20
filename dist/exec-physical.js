@@ -101,6 +101,8 @@ function physicalWorkspaceGuard(policy, call, virtualWorkspaceRoot = "/workspace
 export function evaluatePolicy(policy, call, learnedStore = null, virtualWorkspaceRoot = "/workspace") {
   const decision = evaluateExecPathPolicy(policy, call, learnedStore, virtualWorkspaceRoot);
   if (call.capability !== "exec" || !policy.exec?.paths || decision.effect !== "allow") return decision;
+  // Nothing to check the mappings against: see the note in exec-paths.
+  if (decision.kind === "code-mode") return decision;
 
   const physical = physicalWorkspaceGuard(policy, call, virtualWorkspaceRoot);
   if (physical.effect === "allow") return decision;

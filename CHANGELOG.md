@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.15
+
+- add an optional `codeMode` policy section for gateways that expose only a sandboxed `exec`/`wait` pair and send a program instead of a command
+- treat a payload carrying `code` or `language` as a program, and answer it from that section instead of matching source code against exec regexes and extracting nonsense path operands from it
+- pass a code-mode decision untouched through the exec path, physical mapping, and no-target guards, each of which would otherwise downgrade it to ASK
+- keep the section scopeable by `agents`, `sessions`, and `tools` with the usual matchers, and fall through to the exec rules when it is absent or does not apply
+- never offer permanent approval for a code-mode decision, and leave shell commands and the program's own bridge tool calls fully policed
+
 ## 2.0.14
 
 - replace filename-looking exec-path guesses with command-aware operand classification for common read-only inspection commands

@@ -245,6 +245,10 @@
       }
     ]
   },
+  "codeMode": {
+    "description": "code-mode program; the tool calls it makes are policed individually",
+    "default": "ask"
+  },
   "tools": {
     "default": "ask",
     "defaultAllowAlways": false,

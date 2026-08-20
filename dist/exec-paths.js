@@ -619,10 +619,12 @@ function mergeExecDecision(baseDecision, pathDecision) {
 }
 
 export function evaluatePolicy(policy, call, learnedStore = null, virtualWorkspaceRoot = "/workspace") {
-  const pathDecision = evaluateExecPaths(policy, call, virtualWorkspaceRoot);
   const baseDecision = evaluateBasePolicy(policy, call, learnedStore);
-  if (call.capability !== "exec" || !policy.exec?.paths) return baseDecision;
-  return mergeExecDecision(baseDecision, pathDecision);
+  // Path operands are read out of a command line. A code-mode payload is a program,
+  // so what this extractor finds in it are not operands at all -- a live gateway
+  // produced `/workspace/Basic/Pascal` from prose naming programming languages.
+  if (call.capability !== "exec" || !policy.exec?.paths || baseDecision.kind === "code-mode") return baseDecision;
+  return mergeExecDecision(baseDecision, evaluateExecPaths(policy, call, virtualWorkspaceRoot));
 }
 
 export class PolicyLoader {
